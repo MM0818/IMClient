@@ -7,16 +7,33 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.example.myapplication.page.chatPage.ChatPage
+import com.example.myapplication.page.conversation.ConversationListPage
+import com.example.myapplication.page.imchat.IMChatPage
 import com.example.myapplication.page.modelPage.ModelPage
 import com.example.myapplication.page.recordPage.RecordPage
 
 @Composable
 fun NavigationGraph(
     navHostController: NavHostController,
-    startDestination: String = Screen.RecordPage.route,
+    startDestination: String = Screen.ConversationList.route,
 ){
-
     NavHost(navController = navHostController, startDestination = startDestination){
+        composable(Screen.ConversationList.route){
+            ConversationListPage(
+                onNavigateToChat = { conversationId, contactName ->
+                    navHostController.navigate("${Screen.IMChat.route}/$conversationId/$contactName")
+                }
+            )
+        }
+        composable(
+            route = Screen.IMChat.route + "/{conversationId}/{contactName}",
+            arguments = listOf(
+                navArgument("conversationId") { type = NavType.StringType },
+                navArgument("contactName") { type = NavType.StringType }
+            )
+        ) {
+            IMChatPage(onNavigateBack = { navHostController.popBackStack() })
+        }
         composable(Screen.RecordPage.route){
             RecordPage(navHostController)
         }
