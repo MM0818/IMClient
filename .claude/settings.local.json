@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew assembleDebug)",
+      "Bash(./gradlew clean *)",
+      "Bash(D:/Program Files/Android/Android Studio/jbr/bin/java *)"
+    ]
+  }
+}

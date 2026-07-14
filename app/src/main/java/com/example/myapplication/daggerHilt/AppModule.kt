@@ -3,6 +3,9 @@ package com.example.myapplication.daggerHilt
 import android.content.Context
 import com.coder.vincent.sharp_retrofit.call_adapter.flow.FlowCallAdapterFactory
 import com.example.myapplication.database.chatHistory.ChatHistoryDatabase
+import com.example.myapplication.database.im.IMDatabase
+import com.example.myapplication.database.im.dao.ConversationDao
+import com.example.myapplication.database.im.dao.MessageDao
 import com.example.myapplication.network.chatList.ChatListService
 import com.example.myapplication.network.eachChatRecord.ChatRecordService
 import com.example.myapplication.network.uploadFile.UploadFileService
@@ -92,4 +95,22 @@ object AppModule {
     @Singleton
     @Provides
     fun provideChatHistoryDao(database: ChatHistoryDatabase) = database.chatHistoryDao()
+
+    @Singleton
+    @Provides
+    fun provideIMDatabase(@ApplicationContext context: Context): IMDatabase {
+        return IMDatabase.getDatabase(context)
+    }
+
+    @Singleton
+    @Provides
+    fun provideMessageDao(database: IMDatabase): MessageDao {
+        return database.messageDao()
+    }
+
+    @Singleton
+    @Provides
+    fun provideConversationDao(database: IMDatabase): ConversationDao {
+        return database.conversationDao()
+    }
 }
