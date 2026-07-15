@@ -28,5 +28,11 @@ data class MessageEntity(
     val status: String = "SENDING",   // 消息状态：SENDING, SENT, DELIVERED, READ, FAILED
     val timestamp: Long,              // 消息时间戳
     val isFromMe: Boolean = false,    // 是否是自己发送的
-    val createdAt: Long = System.currentTimeMillis() // 创建时间
+    val createdAt: Long = System.currentTimeMillis(), // 创建时间
+    // 文件相关字段
+    val fileUrl: String = "",         // 文件URL
+    val fileName: String = "",        // 文件名
+    val fileSize: Long = 0,           // 文件大小
+    val thumbnailUrl: String = "",    // 缩略图URL（图片消息）
+    val uploadProgress: Float = 0f    // 上传进度
 )

@@ -8,6 +8,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.*
 import okio.ByteString
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -30,6 +31,8 @@ class WebSocketManager @Inject constructor() {
         private const val INITIAL_RECONNECT_DELAY = 1000L // 初始重连延迟1秒
         private const val MAX_RECONNECT_DELAY = 30_000L // 最大重连延迟30秒
         private const val MAX_RECONNECT_ATTEMPTS = 10 // 最大重连次数
+        private const val ACK_TIMEOUT = 10_000L // ACK超时时间10秒
+        private const val MESSAGE_RETRY_INTERVAL = 5_000L // 消息重试间隔5秒
     }
 
     private val json = Json {
@@ -60,6 +63,15 @@ class WebSocketManager @Inject constructor() {
 
     // 心跳相关
     private var heartbeatJob: Job? = null
+
+    // ACK超时检测Job
+    private var ackTimeoutJob: Job? = null
+
+    // 消息重试Job
+    private var messageRetryJob: Job? = null
+
+    // 消息发送时间记录（用于ACK超时检测）
+    private val messageSendTimes = ConcurrentHashMap<String, Long>()
 
     // 协程作用域
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -130,8 +142,11 @@ class WebSocketManager @Inject constructor() {
                 // 启动心跳
                 startHeartbeat()
 
-                // 发送待发送队列中的消息
-                flushPendingMessages()
+                // 启动ACK超时检测
+                startAckTimeoutCheck()
+
+                // 重试未确认的消息并发送待发送队列
+                startMessageRetry()
 
                 // 通知UI层
                 scope.launch {
@@ -170,6 +185,8 @@ class WebSocketManager @Inject constructor() {
      */
     private fun handleDisconnection(reason: String) {
         stopHeartbeat()
+        stopAckTimeoutCheck()
+        stopMessageRetry()
         _connectionState.value = ConnectionState.DISCONNECTED
 
         scope.launch {
@@ -290,8 +307,9 @@ class WebSocketManager @Inject constructor() {
      * 处理消息确认
      */
     private fun handleMessageAck(ack: MessageAck) {
-        // 从未确认队列中移除
+        // 从未确认队列中移除，清除发送时间记录
         unacknowledgedMessages.removeAll { it.id == ack.messageId }
+        messageSendTimes.remove(ack.messageId)
 
         // 通知UI层状态变更
         scope.launch {
@@ -357,8 +375,9 @@ class WebSocketManager @Inject constructor() {
                 val success = webSocket?.send(jsonMessage) ?: false
 
                 if (success) {
-                    // 加入未确认队列
+                    // 加入未确认队列，记录发送时间
                     unacknowledgedMessages.add(message)
+                    messageSendTimes[message.id] = System.currentTimeMillis()
                     Log.d(TAG, "消息发送成功: ${message.id}")
                 } else {
                     // 发送失败，加入待发送队列
@@ -368,6 +387,93 @@ class WebSocketManager @Inject constructor() {
             } catch (e: Exception) {
                 Log.e(TAG, "消息发送异常: ${e.message}")
                 pendingMessages.add(message)
+            }
+        }
+    }
+
+    /**
+     * 启动ACK超时检测
+     */
+    private fun startAckTimeoutCheck() {
+        stopAckTimeoutCheck()
+        ackTimeoutJob = scope.launch {
+            while (isActive) {
+                delay(MESSAGE_RETRY_INTERVAL)
+                checkAckTimeouts()
+            }
+        }
+    }
+
+    /**
+     * 停止ACK超时检测
+     */
+    private fun stopAckTimeoutCheck() {
+        ackTimeoutJob?.cancel()
+        ackTimeoutJob = null
+    }
+
+    /**
+     * 检查ACK超时
+     */
+    private fun checkAckTimeouts() {
+        val now = System.currentTimeMillis()
+        val iterator = unacknowledgedMessages.iterator()
+
+        while (iterator.hasNext()) {
+            val message = iterator.next()
+            val sendTime = messageSendTimes[message.id] ?: continue
+
+            if (now - sendTime > ACK_TIMEOUT) {
+                // ACK超时，标记为失败
+                Log.w(TAG, "消息ACK超时: ${message.id}")
+                iterator.remove()
+                messageSendTimes.remove(message.id)
+
+                // 通知UI层
+                scope.launch {
+                    _events.emit(WebSocketEvent.MessageStatusChanged(message.id, MessageStatus.FAILED))
+                }
+            }
+        }
+    }
+
+    /**
+     * 启动消息重试（重连后重新发送未确认的消息）
+     */
+    private fun startMessageRetry() {
+        stopMessageRetry()
+        messageRetryJob = scope.launch {
+            delay(1000) // 等待连接稳定
+            retryUnacknowledgedMessages()
+            flushPendingMessages()
+        }
+    }
+
+    /**
+     * 停止消息重试
+     */
+    private fun stopMessageRetry() {
+        messageRetryJob?.cancel()
+        messageRetryJob = null
+    }
+
+    /**
+     * 重试未确认的消息
+     */
+    private fun retryUnacknowledgedMessages() {
+        scope.launch {
+            val messagesToRetry = unacknowledgedMessages.toList()
+            unacknowledgedMessages.clear()
+            messageSendTimes.clear()
+
+            for (message in messagesToRetry) {
+                if (_connectionState.value == ConnectionState.CONNECTED) {
+                    sendToWebSocket(message)
+                    delay(100) // 避免消息过快发送
+                } else {
+                    // 连接断开，加入待发送队列
+                    pendingMessages.add(message)
+                }
             }
         }
     }
@@ -390,6 +496,8 @@ class WebSocketManager @Inject constructor() {
      */
     fun disconnect() {
         stopHeartbeat()
+        stopAckTimeoutCheck()
+        stopMessageRetry()
         reconnectJob?.cancel()
         webSocket?.close(1000, "用户主动断开")
         webSocket = null

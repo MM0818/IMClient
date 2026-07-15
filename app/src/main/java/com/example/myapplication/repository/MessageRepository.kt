@@ -1,15 +1,21 @@
 package com.example.myapplication.repository
 
+import android.content.Context
+import android.net.Uri
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import com.example.myapplication.database.im.dao.MessageDao
 import com.example.myapplication.database.im.entity.MessageEntity
+import com.example.myapplication.network.upload.FileUploadManager
+import com.example.myapplication.network.upload.ImageCompressor
+import com.example.myapplication.network.upload.UploadState
 import com.example.myapplication.network.websocket.IMMessage
 import com.example.myapplication.network.websocket.MessageStatus
 import com.example.myapplication.network.websocket.MessageType
 import com.example.myapplication.network.websocket.WebSocketManager
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,7 +27,9 @@ import javax.inject.Singleton
 @Singleton
 class MessageRepository @Inject constructor(
     private val messageDao: MessageDao,
-    private val webSocketManager: WebSocketManager
+    private val webSocketManager: WebSocketManager,
+    private val fileUploadManager: FileUploadManager,
+    private val imageCompressor: ImageCompressor
 ) {
 
     companion object {
@@ -168,5 +176,129 @@ class MessageRepository @Inject constructor(
      */
     suspend fun getMessageCount(conversationId: String): Int {
         return messageDao.getMessageCount(conversationId)
+    }
+
+    /**
+     * 发送图片消息
+     * @return 消息ID和上传任务ID
+     */
+    suspend fun sendImageMessage(
+        context: Context,
+        conversationId: String,
+        receiverId: String,
+        imageUri: Uri
+    ): Pair<String, String> {
+        val messageId = UUID.randomUUID().toString()
+        val timestamp = System.currentTimeMillis()
+
+        // 1. 压缩图片
+        val compressResult = imageCompressor.compressImage(context, imageUri)
+
+        // 2. 创建上传任务
+        val uploadTask = fileUploadManager.createUploadTask(
+            context = context,
+            fileUri = Uri.fromFile(compressResult.compressedFile),
+            fileName = "image_${messageId}.jpg"
+        )
+
+        // 3. 保存到本地数据库
+        val messageEntity = MessageEntity(
+            id = messageId,
+            conversationId = conversationId,
+            senderId = webSocketManager.getCurrentUserId(),
+            receiverId = receiverId,
+            content = "[图片]",
+            type = MessageType.IMAGE.name,
+            status = MessageStatus.SENDING.name,
+            timestamp = timestamp,
+            isFromMe = true,
+            fileName = "image_${messageId}.jpg",
+            fileSize = compressResult.compressedSize,
+            thumbnailUrl = compressResult.thumbnailFile?.absolutePath ?: ""
+        )
+        messageDao.insertMessage(messageEntity)
+
+        // 4. 开始上传
+        fileUploadManager.startUpload(uploadTask.id, context)
+
+        return messageId to uploadTask.id
+    }
+
+    /**
+     * 发送文件消息
+     * @return 消息ID和上传任务ID
+     */
+    suspend fun sendFileMessage(
+        context: Context,
+        conversationId: String,
+        receiverId: String,
+        fileUri: Uri,
+        fileName: String
+    ): Pair<String, String> {
+        val messageId = UUID.randomUUID().toString()
+        val timestamp = System.currentTimeMillis()
+
+        // 1. 创建上传任务
+        val uploadTask = fileUploadManager.createUploadTask(
+            context = context,
+            fileUri = fileUri,
+            fileName = fileName
+        )
+
+        // 2. 保存到本地数据库
+        val messageEntity = MessageEntity(
+            id = messageId,
+            conversationId = conversationId,
+            senderId = webSocketManager.getCurrentUserId(),
+            receiverId = receiverId,
+            content = fileName,
+            type = MessageType.FILE.name,
+            status = MessageStatus.SENDING.name,
+            timestamp = timestamp,
+            isFromMe = true,
+            fileName = fileName,
+            fileSize = uploadTask.fileSize
+        )
+        messageDao.insertMessage(messageEntity)
+
+        // 3. 开始上传
+        fileUploadManager.startUpload(uploadTask.id, context)
+
+        return messageId to uploadTask.id
+    }
+
+    /**
+     * 获取上传进度
+     */
+    fun getUploadProgress(uploadTaskId: String): StateFlow<Float> {
+        return fileUploadManager.getUploadProgress(uploadTaskId)
+    }
+
+    /**
+     * 获取上传状态
+     */
+    fun getUploadState(uploadTaskId: String): StateFlow<UploadState> {
+        return fileUploadManager.getUploadState(uploadTaskId)
+    }
+
+    /**
+     * 暂停上传
+     */
+    fun pauseUpload(uploadTaskId: String) {
+        fileUploadManager.pauseUpload(uploadTaskId)
+    }
+
+    /**
+     * 恢复上传
+     */
+    fun resumeUpload(uploadTaskId: String, context: Context) {
+        fileUploadManager.resumeUpload(uploadTaskId, context)
+    }
+
+    /**
+     * 取消上传
+     */
+    fun cancelUpload(uploadTaskId: String) {
+        fileUploadManager.cancelUpload(uploadTaskId)
     }
 }

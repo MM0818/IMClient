@@ -140,6 +140,15 @@ private fun ConversationItem(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    // 使用remember缓存计算结果，避免不必要的重组
+    val hasUnread = remember(conversation.unreadCount) { conversation.unreadCount > 0 }
+    val formattedTime = remember(conversation.lastMessageTime) { formatTime(conversation.lastMessageTime) }
+    val lastMessage = remember(conversation.lastMessage) { conversation.lastMessage.ifEmpty { "暂无消息" } }
+    val unreadText = remember(conversation.unreadCount) {
+        if (conversation.unreadCount > 99) "99+" else conversation.unreadCount.toString()
+    }
+    val initial = remember(conversation.contactName) { conversation.contactName.take(1) }
+
     val dismissState = rememberDismissState(confirmValueChange = {
         if (it == DismissValue.DismissedToStart) { onDelete(); true } else false
     })
@@ -158,21 +167,21 @@ private fun ConversationItem(
                         if (conversation.contactAvatar.isNotEmpty()) {
                             AsyncImage(model = conversation.contactAvatar, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         } else {
-                            Text(text = conversation.contactName.take(1), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text(text = initial, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(text = conversation.contactName, fontWeight = if (conversation.unreadCount > 0) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            Text(text = formatTime(conversation.lastMessageTime), fontSize = 12.sp, color = if (conversation.unreadCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+                            Text(text = conversation.contactName, fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text(text = formattedTime, fontSize = 12.sp, color = if (hasUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = conversation.lastMessage.ifEmpty { "暂无消息" }, fontSize = 14.sp, color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            if (conversation.unreadCount > 0) {
+                            Text(text = lastMessage, fontSize = 14.sp, color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            if (hasUnread) {
                                 Badge(containerColor = MaterialTheme.colorScheme.error) {
-                                    Text(text = if (conversation.unreadCount > 99) "99+" else conversation.unreadCount.toString(), color = Color.White, fontSize = 12.sp)
+                                    Text(text = unreadText, color = Color.White, fontSize = 12.sp)
                                 }
                             }
                             if (conversation.isTop) {

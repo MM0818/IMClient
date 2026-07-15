@@ -1,5 +1,7 @@
 package com.example.myapplication.page.imchat
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -102,6 +104,54 @@ class IMChatViewModel @Inject constructor(
             conversationRepository.updateLastMessage(conversationId, content, System.currentTimeMillis())
             _inputText.value = ""
         }
+    }
+
+    /**
+     * 发送图片消息
+     */
+    fun sendImageMessage(context: Context, imageUri: Uri) {
+        if (conversationId.isEmpty()) return
+        viewModelScope.launch {
+            val (messageId, uploadTaskId) = messageRepository.sendImageMessage(
+                context = context,
+                conversationId = conversationId,
+                receiverId = conversationId,
+                imageUri = imageUri
+            )
+            conversationRepository.updateLastMessage(conversationId, "[图片]", System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * 发送文件消息
+     */
+    fun sendFileMessage(context: Context, fileUri: Uri) {
+        if (conversationId.isEmpty()) return
+        viewModelScope.launch {
+            // 获取文件名
+            val fileName = getFileName(context, fileUri) ?: "未知文件"
+            val (messageId, uploadTaskId) = messageRepository.sendFileMessage(
+                context = context,
+                conversationId = conversationId,
+                receiverId = conversationId,
+                fileUri = fileUri,
+                fileName = fileName
+            )
+            conversationRepository.updateLastMessage(conversationId, fileName, System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * 获取文件名
+     */
+    private fun getFileName(context: Context, uri: Uri): String? {
+        var fileName: String? = null
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            cursor.moveToFirst()
+            fileName = cursor.getString(nameIndex)
+        }
+        return fileName
     }
 
     fun deleteMessage(messageId: String) { viewModelScope.launch { messageRepository.deleteMessage(messageId) } }
