@@ -55,8 +55,8 @@ class ConversationRepository @Inject constructor(
         contactName: String,
         contactAvatar: String = ""
     ): ConversationEntity {
-        // 尝试获取已有会话
-        val existingConversation = conversationDao.getConversationById(contactId)
+        // 尝试获取已有会话（根据contactId查找，而不是conversationId）
+        val existingConversation = conversationDao.getConversationByContactId(contactId)
         if (existingConversation != null) {
             return existingConversation
         }

@@ -9,15 +9,23 @@ import androidx.navigation.navArgument
 import com.example.myapplication.page.chatPage.ChatPage
 import com.example.myapplication.page.conversation.ConversationListPage
 import com.example.myapplication.page.imchat.IMChatPage
+import com.example.myapplication.page.login.LoginPage
+import com.example.myapplication.page.login.RegisterPage
 import com.example.myapplication.page.modelPage.ModelPage
 import com.example.myapplication.page.recordPage.RecordPage
 
 @Composable
 fun NavigationGraph(
     navHostController: NavHostController,
-    startDestination: String = Screen.ConversationList.route,
+    startDestination: String = Screen.Login.route,
 ){
     NavHost(navController = navHostController, startDestination = startDestination){
+        composable(Screen.Login.route) {
+            LoginPage(navController = navHostController)
+        }
+        composable(Screen.Register.route) {
+            RegisterPage(navController = navHostController)
+        }
         composable(Screen.ConversationList.route){
             ConversationListPage(
                 onNavigateToChat = { conversationId, contactName ->

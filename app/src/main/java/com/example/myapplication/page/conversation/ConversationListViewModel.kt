@@ -5,14 +5,17 @@ import androidx.lifecycle.viewModelScope
 import com.example.myapplication.Const.Token
 import com.example.myapplication.Const.WebSocketUrl
 import com.example.myapplication.database.im.entity.ConversationEntity
+import com.example.myapplication.network.mock.MockWebSocketServer
 import com.example.myapplication.network.websocket.WebSocketEvent
 import com.example.myapplication.network.websocket.WebSocketManager
 import com.example.myapplication.repository.ConversationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -45,6 +48,8 @@ class ConversationListViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    private var mockServer: MockWebSocketServer? = null
+
     init {
         connectWebSocket()
         observeWebSocketEvents()
@@ -52,8 +57,24 @@ class ConversationListViewModel @Inject constructor(
 
     private fun connectWebSocket() {
         if (Token.TOKEN.isNotEmpty() && Token.USER_ID.isNotEmpty()) {
-            webSocketManager.connect(WebSocketUrl.IM_URL, Token.TOKEN, Token.USER_ID)
+            if (WebSocketUrl.USE_MOCK) {
+                // 启动本地Mock服务器（需要在IO线程）
+                viewModelScope.launch {
+                    val url = withContext(Dispatchers.IO) {
+                        mockServer = MockWebSocketServer()
+                        mockServer!!.start()
+                    }
+                    webSocketManager.connect(url, Token.TOKEN, Token.USER_ID)
+                }
+            } else {
+                webSocketManager.connect(WebSocketUrl.IM_URL, Token.TOKEN, Token.USER_ID)
+            }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        mockServer?.stop()
     }
 
     private fun observeWebSocketEvents() {

@@ -49,6 +49,12 @@ interface ConversationDao {
     suspend fun getConversationById(conversationId: String): ConversationEntity?
 
     /**
+     * 根据联系人ID获取会话
+     */
+    @Query("SELECT * FROM conversations WHERE contactId = :contactId")
+    suspend fun getConversationByContactId(contactId: String): ConversationEntity?
+
+    /**
      * 根据ID获取会话（Flow）
      */
     @Query("SELECT * FROM conversations WHERE id = :conversationId")

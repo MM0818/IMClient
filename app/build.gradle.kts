@@ -96,4 +96,6 @@ dependencies {
     // Paging3
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
+    // MockWebServer (本地Mock测试)
+    implementation(libs.okhttp.mockwebserver)
 }

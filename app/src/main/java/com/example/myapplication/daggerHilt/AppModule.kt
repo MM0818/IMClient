@@ -6,9 +6,11 @@ import com.example.myapplication.database.chatHistory.ChatHistoryDatabase
 import com.example.myapplication.database.im.IMDatabase
 import com.example.myapplication.database.im.dao.ConversationDao
 import com.example.myapplication.database.im.dao.MessageDao
+import com.example.myapplication.network.auth.AuthService
 import com.example.myapplication.network.chatList.ChatListService
 import com.example.myapplication.network.eachChatRecord.ChatRecordService
 import com.example.myapplication.network.uploadFile.UploadFileService
+import com.example.myapplication.network.user.UserService
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -70,6 +72,17 @@ object AppModule {
 
     @Singleton
     @Provides
+    @Named("auth")
+    fun provideRetrofitAuth(client: OkHttpClient): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl("https://c.datapipe.top")
+            .client(client)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
+
+    @Singleton
+    @Provides
     fun provideUploadFileService(@Named("upload") retrofit: Retrofit): UploadFileService {
         return retrofit.create(UploadFileService::class.java)
     }
@@ -84,6 +97,18 @@ object AppModule {
     @Provides
     fun provideChatRecordService(@Named("chat") retrofit: Retrofit):ChatRecordService{
         return retrofit.create(ChatRecordService::class.java)
+    }
+
+    @Singleton
+    @Provides
+    fun provideAuthService(@Named("auth") retrofit: Retrofit): AuthService {
+        return retrofit.create(AuthService::class.java)
+    }
+
+    @Singleton
+    @Provides
+    fun provideUserService(@Named("auth") retrofit: Retrofit): UserService {
+        return retrofit.create(UserService::class.java)
     }
 
     @Singleton

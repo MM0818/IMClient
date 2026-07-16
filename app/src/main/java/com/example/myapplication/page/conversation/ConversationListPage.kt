@@ -22,7 +22,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.example.myapplication.database.im.entity.ConversationEntity
+import com.example.myapplication.network.user.UserItem
 import com.example.myapplication.network.websocket.WebSocketManager
+import com.example.myapplication.page.login.LoginViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -31,29 +33,43 @@ import java.util.*
 @Composable
 fun ConversationListPage(
     onNavigateToChat: (conversationId: String, contactName: String) -> Unit,
-    viewModel: ConversationListViewModel = hiltViewModel()
+    viewModel: ConversationListViewModel = hiltViewModel(),
+    loginViewModel: LoginViewModel = hiltViewModel()
 ) {
     val conversations by viewModel.conversations.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val users by loginViewModel.users.collectAsState()
+    val isLoadingUsers by loginViewModel.isLoadingUsers.collectAsState()
     var showSearch by remember { mutableStateOf(false) }
     var showNewConversationDialog by remember { mutableStateOf(false) }
+    var searchKeyword by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
-    // 新建会话对话框
+    // 新建会话对话框（显示用户列表）
     if (showNewConversationDialog) {
         NewConversationDialog(
-            onDismiss = { showNewConversationDialog = false },
-            onConfirm = { contactId, contactName ->
+            users = users,
+            isLoading = isLoadingUsers,
+            searchKeyword = searchKeyword,
+            onSearchChange = { searchKeyword = it; loginViewModel.searchUsers(it) },
+            onDismiss = { showNewConversationDialog = false; searchKeyword = "" },
+            onSelectUser = { user ->
                 showNewConversationDialog = false
-                // 创建会话并跳转
+                searchKeyword = ""
                 scope.launch {
-                    val (conversationId, name) = viewModel.createConversation(contactId, contactName)
+                    val (conversationId, name) = viewModel.createConversation(user.userId, user.username)
                     onNavigateToChat(conversationId, name)
                 }
             }
         )
+    }
+
+    LaunchedEffect(showNewConversationDialog) {
+        if (showNewConversationDialog) {
+            loginViewModel.fetchUsers()
+        }
     }
 
     Scaffold(
@@ -208,45 +224,73 @@ private fun formatTime(timestamp: Long): String {
 
 @Composable
 private fun NewConversationDialog(
+    users: List<UserItem>,
+    isLoading: Boolean,
+    searchKeyword: String,
+    onSearchChange: (String) -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: (contactId: String, contactName: String) -> Unit
+    onSelectUser: (UserItem) -> Unit
 ) {
-    var contactId by remember { mutableStateOf("") }
-    var contactName by remember { mutableStateOf("") }
+    val initial = remember { { user: UserItem -> user.username.take(1) } }
 
-    AlertDialog(
+    androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新建会话") },
+        title = { Text("选择联系人") },
         text = {
-            Column {
+            Column(modifier = Modifier.width(300.dp)) {
                 OutlinedTextField(
-                    value = contactId,
-                    onValueChange = { contactId = it },
-                    label = { Text("联系人ID") },
-                    placeholder = { Text("输入联系人ID") },
+                    value = searchKeyword,
+                    onValueChange = onSearchChange,
+                    label = { Text("搜索用户") },
+                    placeholder = { Text("输入用户名") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = contactName,
-                    onValueChange = { contactName = it },
-                    label = { Text("联系人名称") },
-                    placeholder = { Text("输入联系人名称") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Spacer(modifier = Modifier.height(12.dp))
+                if (isLoading) {
+                    Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else if (users.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        Text("暂无用户", color = MaterialTheme.colorScheme.outline)
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                        items(items = users, key = { it.userId }) { user ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().clickable { onSelectUser(user) },
+                                color = MaterialTheme.colorScheme.surface
+                            ) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                                        if (!user.avatar.isNullOrEmpty()) {
+                                            AsyncImage(model = user.avatar, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                        } else {
+                                            Text(text = initial(user), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = user.username, fontSize = 16.sp)
+                                        if (user.online) {
+                                            Text(text = "在线", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                        } else {
+                                            Text(text = "离线", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                                        }
+                                    }
+                                    if (user.online) {
+                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = { onConfirm(contactId, contactName) },
-                enabled = contactId.isNotBlank() && contactName.isNotBlank()
-            ) {
-                Text("创建")
-            }
-        },
-        dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("取消")
             }
