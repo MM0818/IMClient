@@ -3,7 +3,21 @@
     "allow": [
       "Bash(./gradlew assembleDebug)",
       "Bash(./gradlew clean *)",
-      "Bash(D:/Program Files/Android/Android Studio/jbr/bin/java *)"
+      "Bash(D:/Program Files/Android/Android Studio/jbr/bin/java *)",
+      "Bash(where adb *)",
+      "Read(//c/Users/manman/AppData/Local/**)",
+      "Read(//d/Program Files/Android/**)",
+      "Read(//d/AndroidStudio/**)",
+      "Bash(D:/Android/Sdk/platform-tools/adb.exe shell *)",
+      "Bash(\"D:/Android/Sdk/platform-tools/adb.exe\" shell *)",
+      "Bash(ipconfig)",
+      "Bash(\"D:/Android/Sdk/platform-tools/adb.exe\" -s EMTOM7RO9TA6PZE6 shell \"ip addr show\")",
+      "Bash(D:/Android/Sdk/platform-tools/adb.exe *)",
+      "Bash(ping *)",
+      "Bash(netsh advfirewall *)",
+      "Bash(netstat -ano)",
+      "Bash(curl *)",
+      "Bash(powershell *)"
     ]
   }
 }

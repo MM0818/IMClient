@@ -36,6 +36,11 @@ fun RegisterPage(
         }
     }
 
+    // 页面加载时自动运行网络诊断
+    LaunchedEffect(Unit) {
+        viewModel.diagnoseNetwork()
+    }
+
     Scaffold(modifier = Modifier.fillMaxSize()) { paddingValues ->
         Column(
             modifier = Modifier

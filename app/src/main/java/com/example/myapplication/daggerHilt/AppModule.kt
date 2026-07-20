@@ -16,29 +16,43 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.util.concurrent.TimeUnit
 import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
-    private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
-    }
 
     @Singleton
     @Provides
     fun provideClient(@ApplicationContext context: Context): OkHttpClient {
+        val loggingInterceptor = HttpLoggingInterceptor { message ->
+            Log.d("IM_HTTP", message)
+        }.apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
         return OkHttpClient.Builder()
-            .connectTimeout(3000L, TimeUnit.MILLISECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .addInterceptor(interceptor = loggingInterceptor)
+            .addInterceptor(loggingInterceptor)
+            .addInterceptor { chain ->
+                val request = chain.request()
+                Log.d("IM_HTTP", ">>> 请求: ${request.method} ${request.url}")
+                try {
+                    val response = chain.proceed(request)
+                    Log.d("IM_HTTP", "<<< 响应: ${response.code} ${response.message} for ${request.url}")
+                    response
+                } catch (e: Exception) {
+                    Log.e("IM_HTTP", "!!! 请求异常: ${e.javaClass.simpleName}: ${e.message}", e)
+                    throw e
+                }
+            }
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .build()
     }
 
@@ -75,7 +89,7 @@ object AppModule {
     @Named("auth")
     fun provideRetrofitAuth(client: OkHttpClient): Retrofit {
         return Retrofit.Builder()
-            .baseUrl("https://c.datapipe.top")
+            .baseUrl("http://192.168.181.15:8081/")   //换成电脑的ip4地址，确保手机和电脑连接同一个网络
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
