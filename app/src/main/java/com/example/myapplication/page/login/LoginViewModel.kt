@@ -178,7 +178,7 @@ class LoginViewModel @Inject constructor(
         _isLoadingUsers.value = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val response = userService.getUsers()
+                val response = userService.getUsers("Bearer ${Token.TOKEN}")
                 withContext(Dispatchers.Main) {
                     if (response.success && response.data != null) {
                         _users.value = response.data.filter { it.userId != Token.USER_ID }
@@ -204,7 +204,7 @@ class LoginViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val response = userService.searchUsers(keyword)
+                val response = userService.searchUsers("Bearer ${Token.TOKEN}", keyword)
                 withContext(Dispatchers.Main) {
                     if (response.success && response.data != null) {
                         _users.value = response.data.filter { it.userId != Token.USER_ID }
