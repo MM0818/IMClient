@@ -14,7 +14,8 @@ import androidx.room.PrimaryKey
         Index(value = ["conversationId", "timestamp"]),
         Index(value = ["conversationId"]),
         Index(value = ["senderId"]),
-        Index(value = ["status"])
+        Index(value = ["status"]),
+        Index(value = ["ownerUserId"])
     ]
 )
 data class MessageEntity(
@@ -34,5 +35,6 @@ data class MessageEntity(
     val fileName: String = "",        // 文件名
     val fileSize: Long = 0,           // 文件大小
     val thumbnailUrl: String = "",    // 缩略图URL（图片消息）
-    val uploadProgress: Float = 0f    // 上传进度
+    val uploadProgress: Float = 0f,   // 上传进度
+    val ownerUserId: String = ""      // 归属用户ID（数据隔离）
 )

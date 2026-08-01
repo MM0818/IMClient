@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,9 +34,19 @@ import java.util.*
 @Composable
 fun ConversationListPage(
     onNavigateToChat: (conversationId: String, contactName: String) -> Unit,
+    onNavigateToLogin: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
     loginViewModel: LoginViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
+
+    // 观察被踢下线事件
+    LaunchedEffect(Unit) {
+        viewModel.kickedEvent.collect { reason ->
+            android.widget.Toast.makeText(context, reason, android.widget.Toast.LENGTH_LONG).show()
+            onNavigateToLogin()
+        }
+    }
     val conversations by viewModel.conversations.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -47,10 +58,14 @@ fun ConversationListPage(
     var searchKeyword by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
-    // 新建会话对话框（显示用户列表）
+    // 新建会话对话框（显示用户列表，排除当前登录用户）
+    val filteredUsers = remember(users) {
+        users.filter { it.userId != com.example.myapplication.Const.Token.USER_ID }
+    }
+
     if (showNewConversationDialog) {
         NewConversationDialog(
-            users = users,
+            users = filteredUsers,
             isLoading = isLoadingUsers,
             searchKeyword = searchKeyword,
             onSearchChange = { searchKeyword = it; loginViewModel.searchUsers(it) },

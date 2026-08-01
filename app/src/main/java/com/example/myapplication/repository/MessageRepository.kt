@@ -11,6 +11,7 @@ import com.example.myapplication.network.upload.FileUploadManager
 import com.example.myapplication.network.upload.ImageCompressor
 import com.example.myapplication.network.upload.UploadState
 import com.example.myapplication.network.websocket.IMMessage
+import com.example.myapplication.network.websocket.IncomingMessage
 import com.example.myapplication.network.websocket.MessageStatus
 import com.example.myapplication.network.websocket.MessageType
 import com.example.myapplication.network.websocket.WebSocketManager
@@ -69,6 +70,9 @@ class MessageRepository @Inject constructor(
         val messageId = UUID.randomUUID().toString()
         val timestamp = System.currentTimeMillis()
 
+        android.util.Log.d("IM_DEBUG", "[SORT-DEBUG] sendTextMessage: id=$messageId, timestamp=$timestamp, content=$content")
+        android.util.Log.d("IM_DEBUG", "[SEND] 开始发送文本消息: messageId=$messageId, conversationId=$conversationId, receiverId=$receiverId")
+
         // 1. 保存到本地数据库（状态：SENDING）
         val messageEntity = MessageEntity(
             id = messageId,
@@ -79,35 +83,50 @@ class MessageRepository @Inject constructor(
             type = MessageType.TEXT.name,
             status = MessageStatus.SENDING.name,
             timestamp = timestamp,
-            isFromMe = true
+            isFromMe = true,
+            ownerUserId = com.example.myapplication.Const.Token.USER_ID
         )
         messageDao.insertMessage(messageEntity)
+        val verifyEntity = messageDao.getMessageById(messageId)
+        android.util.Log.d("IM_DEBUG", "[SEND] 已入库: messageId=$messageId, status=SENDING, DB验证=${verifyEntity?.status}, wsConnected=${webSocketManager.isConnected()}")
 
-        // 2. 通过WebSocket发送
-        webSocketManager.sendMessage(
+        // 2. 通过WebSocket发送（使用同一个messageId，保证ACK能匹配）
+        val wsMessageId = webSocketManager.sendMessage(
             conversationId = conversationId,
             receiverId = receiverId,
             content = content,
-            type = MessageType.TEXT
+            type = MessageType.TEXT,
+            existingMessageId = messageId
         )
+        android.util.Log.d("IM_DEBUG", "[SEND] WebSocket已调用: wsMessageId=$wsMessageId, 原messageId=$messageId, 匹配=${wsMessageId == messageId}")
 
         return messageId
     }
 
     /**
      * 接收消息
+     * 如果本地已存在该消息（自己发的），不更新状态（由ACK流程管理：SENDING→SENT→DELIVERED）
      */
-    suspend fun receiveMessage(message: IMMessage) {
+    suspend fun receiveMessage(message: IncomingMessage) {
+        val existing = messageDao.getMessageById(message.id)
+        if (existing != null) {
+            // 消息已存在（自己发送时已入库），状态由ACK管理，不在此处更新
+            android.util.Log.d("IM_DEBUG", "[RECV] 消息已存在，跳过状态更新: id=${message.id}, 当前状态=${existing.status}")
+            return
+        }
+
+        // timestamp保留原始发送时间（用于显示），排序使用createdAt（本地入库时间，统一设备时钟）
         val messageEntity = MessageEntity(
             id = message.id,
             conversationId = message.conversationId,
             senderId = message.senderId,
-            receiverId = message.receiverId,
+            receiverId = webSocketManager.getCurrentUserId(),
             content = message.content,
             type = message.type.name,
             status = MessageStatus.DELIVERED.name,
             timestamp = message.timestamp,
-            isFromMe = false
+            isFromMe = false,
+            ownerUserId = com.example.myapplication.Const.Token.USER_ID
         )
         messageDao.insertMessage(messageEntity)
     }
@@ -120,14 +139,22 @@ class MessageRepository @Inject constructor(
     }
 
     /**
+     * 断网时将所有SENDING状态的消息标记为FAILED
+     */
+    suspend fun markSendingAsFailed() {
+        messageDao.markSendingAsFailed(com.example.myapplication.Const.Token.USER_ID)
+    }
+
+    /**
      * 获取待发送的消息
      */
     suspend fun getPendingMessages(): List<MessageEntity> {
-        return messageDao.getPendingMessages()
+        return messageDao.getPendingMessages(com.example.myapplication.Const.Token.USER_ID)
     }
 
     /**
      * 重新发送失败的消息
+     * 使用相同messageId保证幂等去重，服务端不会生成重复消息
      */
     suspend fun resendMessage(messageId: String) {
         val message = messageDao.getMessageById(messageId) ?: return
@@ -135,8 +162,9 @@ class MessageRepository @Inject constructor(
         // 更新状态为发送中
         messageDao.updateMessageStatus(messageId, MessageStatus.SENDING.name)
 
-        // 重新发送
-        webSocketManager.sendMessage(
+        // 使用相同messageId重新发送
+        webSocketManager.retryPendingMessage(
+            messageId = messageId,
             conversationId = message.conversationId,
             receiverId = message.receiverId,
             content = message.content,
@@ -162,12 +190,13 @@ class MessageRepository @Inject constructor(
      * 搜索消息
      */
     fun searchMessages(keyword: String): Flow<PagingData<MessageEntity>> {
+        val ownerUserId = com.example.myapplication.Const.Token.USER_ID
         return Pager(
             config = PagingConfig(
                 pageSize = PAGE_SIZE,
                 enablePlaceholders = false
             ),
-            pagingSourceFactory = { messageDao.searchMessages(keyword) }
+            pagingSourceFactory = { messageDao.searchMessages(keyword, ownerUserId) }
         ).flow
     }
 
@@ -214,7 +243,8 @@ class MessageRepository @Inject constructor(
             isFromMe = true,
             fileName = "image_${messageId}.jpg",
             fileSize = compressResult.compressedSize,
-            thumbnailUrl = compressResult.thumbnailFile?.absolutePath ?: ""
+            thumbnailUrl = compressResult.thumbnailFile?.absolutePath ?: "",
+            ownerUserId = com.example.myapplication.Const.Token.USER_ID
         )
         messageDao.insertMessage(messageEntity)
 
@@ -257,7 +287,8 @@ class MessageRepository @Inject constructor(
             timestamp = timestamp,
             isFromMe = true,
             fileName = fileName,
-            fileSize = uploadTask.fileSize
+            fileSize = uploadTask.fileSize,
+            ownerUserId = com.example.myapplication.Const.Token.USER_ID
         )
         messageDao.insertMessage(messageEntity)
 

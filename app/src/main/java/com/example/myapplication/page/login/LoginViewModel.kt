@@ -182,6 +182,8 @@ class LoginViewModel @Inject constructor(
                 withContext(Dispatchers.Main) {
                     if (response.success && response.data != null) {
                         _users.value = response.data.filter { it.userId != Token.USER_ID }
+                        // 缓存 userId → username 映射
+                        Token.cacheUserNames(response.data.map { it.userId to it.username })
                     }
                 }
             } catch (e: Exception) {
@@ -208,6 +210,7 @@ class LoginViewModel @Inject constructor(
                 withContext(Dispatchers.Main) {
                     if (response.success && response.data != null) {
                         _users.value = response.data.filter { it.userId != Token.USER_ID }
+                        Token.cacheUserNames(response.data.map { it.userId to it.username })
                     }
                 }
             } catch (e: Exception) {
@@ -232,6 +235,7 @@ class LoginViewModel @Inject constructor(
         Token.TOKEN = ""
         Token.USER_ID = ""
         Token.USERNAME = ""
+        Token.clearCache()
     }
 
     fun isLoggedIn(): Boolean {

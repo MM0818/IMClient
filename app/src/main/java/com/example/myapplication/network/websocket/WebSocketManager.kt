@@ -38,6 +38,7 @@ class WebSocketManager @Inject constructor() {
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
+        encodeDefaults = true  // 必须：否则默认值字段（如type）不会序列化
     }
 
     private var webSocket: WebSocket? = null
@@ -81,6 +82,10 @@ class WebSocketManager @Inject constructor() {
     private var currentToken: String = ""
     private var currentUserId: String = ""
 
+    // 主动断开标志（被踢、用户登出时为true，不触发自动重连）
+    @Volatile
+    private var isIntentionalDisconnect = false
+
     /**
      * 连接状态枚举
      */
@@ -98,9 +103,17 @@ class WebSocketManager @Inject constructor() {
      * @param userId 用户ID
      */
     fun connect(url: String, token: String, userId: String) {
+        Log.d(TAG, "connect() called: url=$url, userId=$userId, token=${token.take(20)}...")
+
+        // 如果是不同用户尝试连接，先断开旧连接
+        if (currentUserId.isNotEmpty() && currentUserId != userId) {
+            Log.w(TAG, "检测到用户切换: $currentUserId → $userId, 断开旧连接")
+            disconnect()
+        }
+
         if (_connectionState.value == ConnectionState.CONNECTED ||
             _connectionState.value == ConnectionState.CONNECTING) {
-            Log.w(TAG, "WebSocket已连接或正在连接中")
+            Log.w(TAG, "WebSocket已连接或正在连接中，state=${_connectionState.value}")
             return
         }
 
@@ -108,6 +121,7 @@ class WebSocketManager @Inject constructor() {
         currentToken = token
         currentUserId = userId
         reconnectAttempts = 0
+        isIntentionalDisconnect = false
 
         _connectionState.value = ConnectionState.CONNECTING
 
@@ -132,7 +146,7 @@ class WebSocketManager @Inject constructor() {
     private fun createWebSocketListener(): WebSocketListener {
         return object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(TAG, "WebSocket连接成功")
+                Log.d(TAG, "WebSocket连接成功, url=$currentUrl, response=${response.code}")
                 _connectionState.value = ConnectionState.CONNECTED
                 reconnectAttempts = 0
 
@@ -155,26 +169,28 @@ class WebSocketManager @Inject constructor() {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d(TAG, "收到文本消息: $text")
+                Log.d(TAG, "<<< onMessage文本: $text")
                 handleIncomingMessage(text)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                Log.d(TAG, "收到二进制消息: ${bytes.hex()}")
+                Log.d(TAG, "<<< onMessage二进制: ${bytes.hex()}")
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "WebSocket正在关闭: $code / $reason")
+                Log.w(TAG, "WebSocket正在关闭: code=$code, reason=$reason")
                 webSocket.close(1000, null)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "WebSocket已关闭: $code / $reason")
+                Log.w(TAG, "WebSocket已关闭: code=$code, reason=$reason")
                 handleDisconnection("连接关闭: $reason")
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket连接失败: ${t.message}")
+                Log.e(TAG, "WebSocket连接失败: ${t.javaClass.simpleName}: ${t.message}")
+                Log.e(TAG, "响应: ${response?.code} ${response?.message}")
+                Log.e(TAG, "异常详情", t)
                 handleDisconnection("连接失败: ${t.message}")
             }
         }
@@ -184,6 +200,7 @@ class WebSocketManager @Inject constructor() {
      * 处理断开连接
      */
     private fun handleDisconnection(reason: String) {
+        Log.w(TAG, "处理断开连接: $reason, isIntentionalDisconnect=$isIntentionalDisconnect")
         stopHeartbeat()
         stopAckTimeoutCheck()
         stopMessageRetry()
@@ -193,7 +210,13 @@ class WebSocketManager @Inject constructor() {
             _events.emit(WebSocketEvent.Disconnected(reason))
         }
 
-        // 自动重连
+        // 主动断开（被踢/登出）不触发自动重连
+        if (isIntentionalDisconnect) {
+            Log.d(TAG, "主动断开，跳过自动重连")
+            return
+        }
+
+        // 被动断开，自动重连
         attemptReconnect()
     }
 
@@ -236,7 +259,9 @@ class WebSocketManager @Inject constructor() {
     private fun sendAuthMessage() {
         val authMessage = AuthMessage(token = currentToken, userId = currentUserId)
         val jsonMessage = json.encodeToString(authMessage)
-        webSocket?.send(jsonMessage)
+        Log.d(TAG, "发送认证消息: $jsonMessage")
+        val success = webSocket?.send(jsonMessage) ?: false
+        Log.d(TAG, "认证消息发送结果: $success")
     }
 
     /**
@@ -256,7 +281,7 @@ class WebSocketManager @Inject constructor() {
                         handleDisconnection("心跳失败")
                         break
                     }
-                    Log.d(TAG, "心跳发送成功")
+                    Log.d(TAG, "心跳发送成功: $jsonMessage")
                 } catch (e: Exception) {
                     Log.e(TAG, "心跳发送异常: ${e.message}")
                     handleDisconnection("心跳异常")
@@ -278,27 +303,64 @@ class WebSocketManager @Inject constructor() {
      * 处理收到的消息
      */
     private fun handleIncomingMessage(text: String) {
+        Log.d(TAG, "<<< 收到原始消息: $text")
         scope.launch {
-            try {
-                // 尝试解析为ACK消息
-                val ack = json.decodeFromString<MessageAck>(text)
-                if (ack.messageId.isNotEmpty()) {
-                    handleMessageAck(ack)
-                    return@launch
-                }
+            // 先提取 type 字段做路由
+            val typeValue = try {
+                json.decodeFromString<Map<String, kotlinx.serialization.json.JsonElement>>(text)["type"]?.toString()?.trim('"')
             } catch (e: Exception) {
-                // 不是ACK消息，继续尝试解析为普通消息
+                null
+            }
+            Log.d(TAG, "[MSG-ROUTE] type字段=$typeValue")
+
+            // 心跳响应
+            if (typeValue == "pong") {
+                Log.d(TAG, "[MSG-ROUTE] → 识别为心跳pong, 跳过")
+                return@launch
             }
 
+            // 被踢下线
+            if (typeValue == "kicked") {
+                val reason = try {
+                    json.decodeFromString<Map<String, kotlinx.serialization.json.JsonElement>>(text)["reason"]?.toString()?.trim('"') ?: "您的账号在其他设备登录"
+                } catch (e: Exception) {
+                    "您的账号在其他设备登录"
+                }
+                Log.w(TAG, "[MSG-ROUTE] → 识别为kicked: reason=$reason")
+                _events.emit(WebSocketEvent.Kicked(reason))
+                disconnect()
+                return@launch
+            }
+
+            // 有 messageId + status 且没有 type(或type不是pong/auth) 的是 ACK
+            val hasMessageId = text.contains("\"messageId\"")
+            val hasStatus = text.contains("\"status\"")
+            Log.d(TAG, "[MSG-ROUTE] hasMessageId=$hasMessageId, hasStatus=$hasStatus, typeValue==null?${typeValue == null}")
+
+            if (hasMessageId && hasStatus && typeValue == null) {
+                try {
+                    val ack = json.decodeFromString<MessageAck>(text)
+                    Log.d(TAG, "[MSG-ROUTE] → 识别为ACK回执: messageId=${ack.messageId}, status=${ack.status}")
+                    handleMessageAck(ack)
+                    return@launch
+                } catch (e: Exception) {
+                    Log.e(TAG, "[MSG-ROUTE] ACK解析失败: ${e.javaClass.simpleName}: ${e.message}")
+                    Log.e(TAG, "[MSG-ROUTE] 原始文本: $text")
+                }
+            }
+
+            // 普通消息（有 id + conversationId + senderId）
             try {
-                // 解析为普通消息
                 val message = json.decodeFromString<IncomingMessage>(text)
+                Log.d(TAG, "[SORT-DEBUG] 收到消息: id=${message.id}, senderId=${message.senderId}, clientTimestamp=${message.timestamp}, serverTimestamp=${message.serverTimestamp}, content=${message.content}")
+                Log.d(TAG, "[MSG-ROUTE] → 识别为普通消息: id=${message.id}, senderId=${message.senderId}, content=${message.content}")
                 _events.emit(WebSocketEvent.MessageReceived(message))
 
                 // 发送确认给服务端
                 sendAck(message.id, MessageStatus.DELIVERED)
             } catch (e: Exception) {
-                Log.e(TAG, "消息解析失败: ${e.message}")
+                Log.e(TAG, "[MSG-ROUTE] 普通消息解析失败: ${e.javaClass.simpleName}: ${e.message}")
+                Log.e(TAG, "[MSG-ROUTE] 原始文本: $text")
             }
         }
     }
@@ -307,16 +369,28 @@ class WebSocketManager @Inject constructor() {
      * 处理消息确认
      */
     private fun handleMessageAck(ack: MessageAck) {
-        // 从未确认队列中移除，清除发送时间记录
-        unacknowledgedMessages.removeAll { it.id == ack.messageId }
+        Log.d(TAG, "[ACK] 开始处理ACK: messageId=${ack.messageId}, status=${ack.status}")
+        Log.d(TAG, "[ACK] 处理前未确认队列大小=${unacknowledgedMessages.size}, 队列IDs=${unacknowledgedMessages.map { it.id }}")
+
+        val removed = unacknowledgedMessages.removeAll { it.id == ack.messageId }
         messageSendTimes.remove(ack.messageId)
 
-        // 通知UI层状态变更
-        scope.launch {
-            _events.emit(WebSocketEvent.MessageStatusChanged(ack.messageId, ack.status))
-        }
+        Log.d(TAG, "[ACK] 从队列移除结果: removed=$removed, 处理后队列大小=${unacknowledgedMessages.size}")
 
-        Log.d(TAG, "消息确认: ${ack.messageId} -> ${ack.status}")
+        // SENT = 服务端已收到，显示单勾；DELIVERED = 对方已收到，显示双勾
+        // 两者都需要通知UI更新
+        if (ack.status >= MessageStatus.SENT) {
+            scope.launch {
+                try {
+                    val event = WebSocketEvent.MessageStatusChanged(ack.messageId, ack.status)
+                    Log.d(TAG, "[ACK] 准备emit事件: messageId=${event.messageId}, status=${event.status}")
+                    val emitted = _events.tryEmit(event)
+                    Log.d(TAG, "[ACK] 事件emit结果: $emitted, messageId=${ack.messageId}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "[ACK] 事件emit异常: ${e.javaClass.simpleName}: ${e.message}")
+                }
+            }
+        }
     }
 
     /**
@@ -329,27 +403,31 @@ class WebSocketManager @Inject constructor() {
             serverTimestamp = System.currentTimeMillis()
         )
         val jsonMessage = json.encodeToString(ack)
-        webSocket?.send(jsonMessage)
+        Log.d(TAG, "发送ACK: $jsonMessage")
+        val success = webSocket?.send(jsonMessage) ?: false
+        Log.d(TAG, "ACK发送结果: $success")
     }
 
     /**
      * 发送消息
-     * @return 生成的消息ID
+     * @param existingMessageId 外部传入的消息ID（保证Room和WebSocket使用同一个ID），为空则自动生成
+     * @return 使用的消息ID
      */
     fun sendMessage(
         conversationId: String,
         receiverId: String,
         content: String,
-        type: MessageType = MessageType.TEXT
+        type: MessageType = MessageType.TEXT,
+        existingMessageId: String? = null
     ): String {
-        val messageId = UUID.randomUUID().toString()
+        val messageId = existingMessageId ?: UUID.randomUUID().toString()
 
         val message = SendMessageRequest(
             id = messageId,
             conversationId = conversationId,
             receiverId = receiverId,
             content = content,
-            type = type,
+            type = type.name,
             timestamp = System.currentTimeMillis()
         )
 
@@ -366,26 +444,50 @@ class WebSocketManager @Inject constructor() {
     }
 
     /**
+     * 重试已存在的消息（使用相同messageId，保证幂等去重）
+     * 用于用户点击失败消息重发、重连后自动重发等场景
+     */
+    fun retryPendingMessage(messageId: String, conversationId: String, receiverId: String, content: String, type: MessageType = MessageType.TEXT) {
+        val message = SendMessageRequest(
+            id = messageId,
+            conversationId = conversationId,
+            receiverId = receiverId,
+            content = content,
+            type = type.name,
+            timestamp = System.currentTimeMillis()
+        )
+
+        if (_connectionState.value == ConnectionState.CONNECTED) {
+            sendToWebSocket(message)
+        } else {
+            pendingMessages.add(message)
+            Log.d(TAG, "重试消息加入待发送队列: $messageId")
+        }
+    }
+
+    /**
      * 通过WebSocket发送消息
      */
     private fun sendToWebSocket(message: SendMessageRequest) {
         scope.launch {
             try {
                 val jsonMessage = json.encodeToString(message)
+                Log.d(TAG, ">>> 发送消息JSON: $jsonMessage")
                 val success = webSocket?.send(jsonMessage) ?: false
 
                 if (success) {
-                    // 加入未确认队列，记录发送时间
+                    // 加入未确认队列，记录发送时间，等待服务端SENT ACK确认
                     unacknowledgedMessages.add(message)
                     messageSendTimes[message.id] = System.currentTimeMillis()
-                    Log.d(TAG, "消息发送成功: ${message.id}")
+                    Log.d(TAG, ">>> 消息已写入WebSocket通道: id=${message.id}, conversationId=${message.conversationId}, receiverId=${message.receiverId}")
+                    Log.d(TAG, ">>> 加入未确认队列, 当前未确认数=${unacknowledgedMessages.size}, 等待服务端SENT ACK")
                 } else {
                     // 发送失败，加入待发送队列
                     pendingMessages.add(message)
-                    Log.w(TAG, "消息发送失败，加入待发送队列: ${message.id}")
+                    Log.w(TAG, "消息发送失败(WebSocket.send返回false): ${message.id}")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "消息发送异常: ${e.message}")
+                Log.e(TAG, "消息发送异常: ${e.javaClass.simpleName}: ${e.message}", e)
                 pendingMessages.add(message)
             }
         }
@@ -419,19 +521,26 @@ class WebSocketManager @Inject constructor() {
         val now = System.currentTimeMillis()
         val iterator = unacknowledgedMessages.iterator()
 
+        Log.d(TAG, "[ACK-TIMEOUT] 开始检查, 未确认队列大小=${unacknowledgedMessages.size}")
+
         while (iterator.hasNext()) {
             val message = iterator.next()
             val sendTime = messageSendTimes[message.id] ?: continue
+            val elapsed = now - sendTime
 
-            if (now - sendTime > ACK_TIMEOUT) {
+            Log.d(TAG, "[ACK-TIMEOUT] 检查消息: id=${message.id}, 已等待${elapsed}ms, 超时阈值=${ACK_TIMEOUT}ms")
+
+            if (elapsed > ACK_TIMEOUT) {
                 // ACK超时，标记为失败
-                Log.w(TAG, "消息ACK超时: ${message.id}")
+                Log.w(TAG, "[ACK-TIMEOUT] 消息ACK超时! id=${message.id}, 已等待${elapsed}ms")
                 iterator.remove()
                 messageSendTimes.remove(message.id)
 
                 // 通知UI层
                 scope.launch {
-                    _events.emit(WebSocketEvent.MessageStatusChanged(message.id, MessageStatus.FAILED))
+                    val event = WebSocketEvent.MessageStatusChanged(message.id, MessageStatus.FAILED)
+                    val emitted = _events.tryEmit(event)
+                    Log.w(TAG, "[ACK-TIMEOUT] 发送FAILED事件: id=${message.id}, emitted=$emitted")
                 }
             }
         }
@@ -492,9 +601,10 @@ class WebSocketManager @Inject constructor() {
     }
 
     /**
-     * 断开连接
+     * 断开连接（主动断开，不触发自动重连）
      */
     fun disconnect() {
+        isIntentionalDisconnect = true
         stopHeartbeat()
         stopAckTimeoutCheck()
         stopMessageRetry()
@@ -510,6 +620,7 @@ class WebSocketManager @Inject constructor() {
      * 重新连接
      */
     fun reconnect() {
+        isIntentionalDisconnect = false
         disconnect()
         reconnectAttempts = 0
         connect(currentUrl, currentToken, currentUserId)

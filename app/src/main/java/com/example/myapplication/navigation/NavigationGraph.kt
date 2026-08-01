@@ -30,6 +30,11 @@ fun NavigationGraph(
             ConversationListPage(
                 onNavigateToChat = { conversationId, contactName ->
                     navHostController.navigate("${Screen.IMChat.route}/$conversationId/$contactName")
+                },
+                onNavigateToLogin = {
+                    navHostController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
             )
         }
@@ -40,7 +45,14 @@ fun NavigationGraph(
                 navArgument("contactName") { type = NavType.StringType }
             )
         ) {
-            IMChatPage(onNavigateBack = { navHostController.popBackStack() })
+            IMChatPage(
+                onNavigateBack = { navHostController.popBackStack() },
+                onNavigateToLogin = {
+                    navHostController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
         }
         composable(Screen.RecordPage.route){
             RecordPage(navHostController)

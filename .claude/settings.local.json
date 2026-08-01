@@ -17,7 +17,12 @@
       "Bash(netsh advfirewall *)",
       "Bash(netstat -ano)",
       "Bash(curl *)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "Read(//d/IDEA_Project/IM_Server_Demo/**)",
+      "Bash(./mvnw compile *)",
+      "Bash(mvn compile *)",
+      "Bash(mvn clean *)",
+      "Bash(./gradlew :app:compileDebugKotlin)"
     ]
   }
 }

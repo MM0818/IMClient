@@ -64,9 +64,11 @@ data class IncomingMessage(
     val id: String,                    // 服务端消息ID
     val conversationId: String,
     val senderId: String,
+    val senderName: String = "",       // 发送者用户名（服务端附带）
     val content: String,
     val type: MessageType = MessageType.TEXT,
-    val timestamp: Long
+    val timestamp: Long,
+    val serverTimestamp: Long = 0      // 服务端时间戳（用于排序，避免设备时钟不同步导致乱序）
 )
 
 /**
@@ -78,7 +80,7 @@ data class SendMessageRequest(
     val conversationId: String,
     val receiverId: String,
     val content: String,
-    val type: MessageType = MessageType.TEXT,
+    val type: String = MessageType.TEXT.name,  // 服务端用 type 字段路由消息
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -110,5 +112,6 @@ sealed class WebSocketEvent {
     data class MessageReceived(val message: IncomingMessage) : WebSocketEvent()
     data class MessageStatusChanged(val messageId: String, val status: MessageStatus) : WebSocketEvent()
     data class Error(val error: Throwable) : WebSocketEvent()
+    data class Kicked(val reason: String) : WebSocketEvent()
     object Reconnecting : WebSocketEvent()
 }

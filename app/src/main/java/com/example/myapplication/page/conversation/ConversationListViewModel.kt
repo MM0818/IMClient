@@ -21,6 +21,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ConversationListViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
+    private val messageRepository: com.example.myapplication.repository.MessageRepository,
     private val webSocketManager: WebSocketManager
 ) : ViewModel() {
 
@@ -37,6 +38,10 @@ class ConversationListViewModel @Inject constructor(
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
+
+    // 被踢下线事件（UI观察后跳转登录页+Toast）
+    private val _kickedEvent = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val kickedEvent: SharedFlow<String> = _kickedEvent.asSharedFlow()
 
     @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
     val searchResults: StateFlow<List<ConversationEntity>> =
@@ -80,15 +85,45 @@ class ConversationListViewModel @Inject constructor(
     private fun observeWebSocketEvents() {
         viewModelScope.launch {
             webSocketManager.events.collect { event ->
-                if (event is WebSocketEvent.MessageReceived) {
-                    conversationRepository.handleMessageReceived(
-                        conversationId = event.message.conversationId,
-                        senderId = event.message.senderId,
-                        senderName = "",
-                        messageContent = event.message.content,
-                        timestamp = event.message.timestamp,
-                        isFromMe = false
-                    )
+                when (event) {
+                    is WebSocketEvent.MessageReceived -> {
+                        // 跳过自己发送的消息（服务端会广播回发送者，由IMChatViewModel处理）
+                        if (event.message.senderId == Token.USER_ID) {
+                            android.util.Log.d("IM_DEBUG", "会话列表跳过自己发的消息: id=${event.message.id}")
+                            return@collect
+                        }
+                        // 跳过当前聊天页已处理的会话消息（避免重复处理导致未读数翻倍）
+                        if (event.message.conversationId == com.example.myapplication.Const.ActiveChat.activeConversationId.value) {
+                            android.util.Log.d("IM_DEBUG", "会话列表跳过当前聊天页会话消息: id=${event.message.id}")
+                            return@collect
+                        }
+                        android.util.Log.d("IM_DEBUG", "会话列表收到消息: id=${event.message.id}, content=${event.message.content}, senderName=${event.message.senderName}")
+                        messageRepository.receiveMessage(event.message)
+                        conversationRepository.handleMessageReceived(
+                            conversationId = event.message.conversationId,
+                            senderId = event.message.senderId,
+                            senderName = event.message.senderName,
+                            messageContent = event.message.content,
+                            timestamp = event.message.timestamp,
+                            isFromMe = false
+                        )
+                    }
+                    is WebSocketEvent.Disconnected -> {
+                        // 断网时将SENDING消息标记为FAILED，避免spinner无限转圈
+                        viewModelScope.launch { messageRepository.markSendingAsFailed() }
+                    }
+                    is WebSocketEvent.Kicked -> {
+                        android.util.Log.w("IM_DEBUG", "被踢下线: reason=${event.reason}")
+                        // 立即断开WebSocket，防止旧token重连
+                        webSocketManager.disconnect()
+                        // 清除本地Token
+                        Token.TOKEN = ""
+                        Token.USER_ID = ""
+                        Token.USERNAME = ""
+                        Token.clearCache()
+                        _kickedEvent.emit(event.reason)
+                    }
+                    else -> {}
                 }
             }
         }

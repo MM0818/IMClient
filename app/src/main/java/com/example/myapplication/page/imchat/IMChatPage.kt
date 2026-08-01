@@ -4,19 +4,24 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -28,7 +33,6 @@ import coil.compose.AsyncImage
 import com.example.myapplication.database.im.entity.MessageEntity
 import com.example.myapplication.network.websocket.MessageStatus
 import com.example.myapplication.network.websocket.MessageType
-import com.example.myapplication.network.websocket.WebSocketManager
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -36,11 +40,22 @@ import java.util.*
 @Composable
 fun IMChatPage(
     onNavigateBack: () -> Unit,
+    onNavigateToLogin: () -> Unit = {},
     viewModel: IMChatViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
+
+    // 观察被踢下线事件
+    LaunchedEffect(Unit) {
+        viewModel.kickedEvent.collect { reason ->
+            android.widget.Toast.makeText(context, reason, android.widget.Toast.LENGTH_LONG).show()
+            onNavigateToLogin()
+        }
+    }
+
     val messages = viewModel.messages.collectAsLazyPagingItems()
     val inputText by viewModel.inputText.collectAsState()
-    val connectionState by viewModel.connectionState.collectAsState()
+    val contactOnline by viewModel.contactOnline.collectAsState()
     val listState = rememberLazyListState()
 
     LaunchedMessages(messages.itemCount) {
@@ -54,17 +69,9 @@ fun IMChatPage(
                     Column {
                         Text(viewModel.contactName, fontWeight = FontWeight.Bold)
                         Text(
-                            text = when (connectionState) {
-                                WebSocketManager.ConnectionState.CONNECTED -> "在线"
-                                WebSocketManager.ConnectionState.RECONNECTING -> "重连中..."
-                                else -> "离线"
-                            },
+                            text = if (contactOnline) "在线" else "离线",
                             fontSize = 12.sp,
-                            color = when (connectionState) {
-                                WebSocketManager.ConnectionState.CONNECTED -> MaterialTheme.colorScheme.primary
-                                WebSocketManager.ConnectionState.RECONNECTING -> MaterialTheme.colorScheme.error
-                                else -> MaterialTheme.colorScheme.outline
-                            }
+                            color = if (contactOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                         )
                     }
                 },
@@ -159,16 +166,39 @@ fun IMChatPage(
             }
         }
     ) { paddingValues ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 8.dp), state = listState, reverseLayout = true) {
-            items(count = messages.itemCount, key = { index -> messages.peek(index)?.id ?: index }) { index ->
-                messages[index]?.let { MessageItem(message = it) }
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            if (messages.itemCount == 0) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.Email,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("暂无消息", color = MaterialTheme.colorScheme.outline)
+                        Text("发送第一条消息开始聊天吧", color = MaterialTheme.colorScheme.outline, fontSize = 14.sp)
+                    }
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp), state = listState, reverseLayout = true) {
+                    items(count = messages.itemCount, key = { index -> messages.peek(index)?.id ?: index }) { index ->
+                        messages[index]?.let { entity ->
+                            MessageItem(
+                                message = entity,
+                                onRetryClick = { viewModel.resendMessage(entity.id) }
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MessageItem(message: MessageEntity) {
+private fun MessageItem(message: MessageEntity, onRetryClick: () -> Unit = {}) {
     // 使用remember缓存计算结果，避免不必要的重组
     val isFromMe = remember(message) { message.isFromMe }
     val formattedTime = remember(message.timestamp) {
@@ -260,7 +290,7 @@ private fun MessageItem(message: MessageEntity) {
                 Text(text = formattedTime, fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
                 if (isFromMe) {
                     Spacer(modifier = Modifier.width(4.dp))
-                    MessageStatusIcon(status = message.status)
+                    MessageStatusIcon(status = message.status, onRetryClick = onRetryClick)
                 }
             }
         }
@@ -280,16 +310,82 @@ private fun formatFileSize(bytes: Long): String {
 }
 
 @Composable
-private fun MessageStatusIcon(status: String) {
-    // 使用remember缓存状态枚举值
-    val messageStatus = remember(status) { MessageStatus.valueOf(status) }
+private fun MessageStatusIcon(status: String, onRetryClick: (() -> Unit)? = null) {
+    val messageStatus = try {
+        MessageStatus.valueOf(status)
+    } catch (e: Exception) {
+        MessageStatus.SENDING
+    }
 
     when (messageStatus) {
-        MessageStatus.SENDING -> CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = MaterialTheme.colorScheme.outline)
-        MessageStatus.SENT -> Icon(Icons.Default.Done, contentDescription = "已发送", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.outline)
-        MessageStatus.DELIVERED -> Icon(Icons.Default.CheckCircle, contentDescription = "已送达", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.outline)
-        MessageStatus.READ -> Icon(Icons.Default.CheckCircle, contentDescription = "已读", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-        MessageStatus.FAILED -> Icon(Icons.Default.Warning, contentDescription = "发送失败", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+        MessageStatus.SENDING -> CircularProgressIndicator(
+            modifier = Modifier.size(12.dp),
+            strokeWidth = 1.5.dp,
+            color = MaterialTheme.colorScheme.outline
+        )
+        MessageStatus.SENT -> Icon(
+            Icons.Default.Done,
+            contentDescription = "已发送",
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.outline
+        )
+        MessageStatus.DELIVERED -> DoubleCheckIcon(
+            tint = MaterialTheme.colorScheme.outline
+        )
+        MessageStatus.READ -> DoubleCheckIcon(
+            tint = Color(0xFF2196F3)
+        )
+        MessageStatus.FAILED -> Icon(
+            Icons.Default.Warning,
+            contentDescription = "发送失败，点击重试",
+            modifier = Modifier
+                .size(14.dp)
+                .clickable { onRetryClick?.invoke() },
+            tint = MaterialTheme.colorScheme.error
+        )
+    }
+}
+
+/**
+ * 双对勾图标（用Canvas绘制，避免引入material-icons-extended）
+ */
+@Composable
+private fun DoubleCheckIcon(tint: Color) {
+    Canvas(modifier = Modifier.size(14.dp)) {
+        val strokeWidth = 1.8.dp.toPx()
+        val color = tint
+
+        // 第一个对勾（靠左）
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.05f, size.height * 0.50f),
+            end = Offset(size.width * 0.28f, size.height * 0.72f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.28f, size.height * 0.72f),
+            end = Offset(size.width * 0.45f, size.height * 0.30f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+
+        // 第二个对勾（靠右，稍有重叠）
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.30f, size.height * 0.50f),
+            end = Offset(size.width * 0.53f, size.height * 0.72f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.53f, size.height * 0.72f),
+            end = Offset(size.width * 0.90f, size.height * 0.25f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
     }
 }
 

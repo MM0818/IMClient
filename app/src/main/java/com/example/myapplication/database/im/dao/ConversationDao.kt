@@ -29,36 +29,38 @@ interface ConversationDao {
      */
     @Query("""
         SELECT * FROM conversations
+        WHERE ownerUserId = :ownerUserId
         ORDER BY isTop DESC, lastMessageTime DESC
     """)
-    fun getAllConversations(): Flow<List<ConversationEntity>>
+    fun getAllConversations(ownerUserId: String): Flow<List<ConversationEntity>>
 
     /**
      * 获取所有会话列表（Paging3分页）
      */
     @Query("""
         SELECT * FROM conversations
+        WHERE ownerUserId = :ownerUserId
         ORDER BY isTop DESC, lastMessageTime DESC
     """)
-    fun getConversationsPaging(): PagingSource<Int, ConversationEntity>
+    fun getConversationsPaging(ownerUserId: String): PagingSource<Int, ConversationEntity>
 
     /**
      * 根据ID获取会话
      */
-    @Query("SELECT * FROM conversations WHERE id = :conversationId")
-    suspend fun getConversationById(conversationId: String): ConversationEntity?
+    @Query("SELECT * FROM conversations WHERE id = :conversationId AND ownerUserId = :ownerUserId")
+    suspend fun getConversationById(conversationId: String, ownerUserId: String): ConversationEntity?
 
     /**
      * 根据联系人ID获取会话
      */
-    @Query("SELECT * FROM conversations WHERE contactId = :contactId")
-    suspend fun getConversationByContactId(contactId: String): ConversationEntity?
+    @Query("SELECT * FROM conversations WHERE contactId = :contactId AND ownerUserId = :ownerUserId")
+    suspend fun getConversationByContactId(contactId: String, ownerUserId: String): ConversationEntity?
 
     /**
      * 根据ID获取会话（Flow）
      */
-    @Query("SELECT * FROM conversations WHERE id = :conversationId")
-    fun getConversationByIdFlow(conversationId: String): Flow<ConversationEntity?>
+    @Query("SELECT * FROM conversations WHERE id = :conversationId AND ownerUserId = :ownerUserId")
+    fun getConversationByIdFlow(conversationId: String, ownerUserId: String): Flow<ConversationEntity?>
 
     /**
      * 更新会话的最新消息
@@ -116,23 +118,24 @@ interface ConversationDao {
     /**
      * 获取会话总数
      */
-    @Query("SELECT COUNT(*) FROM conversations")
-    suspend fun getConversationCount(): Int
+    @Query("SELECT COUNT(*) FROM conversations WHERE ownerUserId = :ownerUserId")
+    suspend fun getConversationCount(ownerUserId: String): Int
 
     /**
      * 获取未读消息总数
      */
-    @Query("SELECT SUM(unreadCount) FROM conversations")
-    fun getTotalUnreadCount(): Flow<Int?>
+    @Query("SELECT SUM(unreadCount) FROM conversations WHERE ownerUserId = :ownerUserId")
+    fun getTotalUnreadCount(ownerUserId: String): Flow<Int?>
 
     /**
      * 搜索会话
      */
     @Query("""
         SELECT * FROM conversations
-        WHERE contactName LIKE '%' || :keyword || '%'
-        OR lastMessage LIKE '%' || :keyword || '%'
+        WHERE ownerUserId = :ownerUserId
+        AND (contactName LIKE '%' || :keyword || '%'
+        OR lastMessage LIKE '%' || :keyword || '%')
         ORDER BY lastMessageTime DESC
     """)
-    fun searchConversations(keyword: String): Flow<List<ConversationEntity>>
+    fun searchConversations(keyword: String, ownerUserId: String): Flow<List<ConversationEntity>>
 }
