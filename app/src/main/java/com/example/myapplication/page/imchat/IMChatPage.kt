@@ -1,6 +1,9 @@
 package com.example.myapplication.page.imchat
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -9,8 +12,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.*
@@ -27,12 +32,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
 import coil.compose.AsyncImage
 import com.example.myapplication.database.im.entity.MessageEntity
 import com.example.myapplication.network.websocket.MessageStatus
 import com.example.myapplication.network.websocket.MessageType
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -56,7 +64,59 @@ fun IMChatPage(
     val messages = viewModel.messages.collectAsLazyPagingItems()
     val inputText by viewModel.inputText.collectAsState()
     val contactOnline by viewModel.contactOnline.collectAsState()
+    val ocrState by viewModel.ocrState.collectAsState()
     val listState = rememberLazyListState()
+
+    // OCR 相关状态
+    var showOcrResult by remember { mutableStateOf(false) }
+    var showOcrOptions by remember { mutableStateOf(false) }
+    var ocrResultText by remember { mutableStateOf("") }
+    var photoUri by remember { mutableStateOf<Uri?>(null) }
+
+    // 拍照 launcher
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && photoUri != null) {
+            viewModel.recognizeText(context, photoUri!!, compress = false)
+        }
+    }
+
+    // 相册选择 launcher
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.recognizeText(context, it, compress = false) }
+    }
+
+    // 相机权限 launcher
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val file = File(context.cacheDir, "ocr_photo_${System.currentTimeMillis()}.jpg")
+            photoUri = FileProvider.getUriForFile(context, "${context.packageName}.image.provider", file)
+            cameraLauncher.launch(photoUri!!)
+        } else {
+            Toast.makeText(context, "需要相机权限才能拍照", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // 观察 OCR 状态
+    LaunchedEffect(ocrState) {
+        when (val state = ocrState) {
+            is OcrState.Success -> {
+                ocrResultText = state.text
+                showOcrResult = true
+                viewModel.resetOcrState()
+            }
+            is OcrState.Error -> {
+                Toast.makeText(context, "OCR识别失败: ${state.message}", Toast.LENGTH_SHORT).show()
+                viewModel.resetOcrState()
+            }
+            else -> {}
+        }
+    }
 
     LaunchedMessages(messages.itemCount) {
         if (messages.itemCount > 0) listState.animateScrollToItem(0)
@@ -139,6 +199,19 @@ fun IMChatPage(
                                 }
                                 Text("文件", fontSize = 12.sp)
                             }
+
+                            // OCR 识字按钮
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                IconButton(
+                                    onClick = {
+                                        showOcrOptions = true
+                                        showMoreOptions = false
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Search, contentDescription = "OCR识字", tint = MaterialTheme.colorScheme.primary)
+                                }
+                                Text("OCR识字", fontSize = 12.sp)
+                            }
                         }
                     }
 
@@ -193,6 +266,117 @@ fun IMChatPage(
                     }
                 }
             }
+        }
+    }
+
+    // OCR 选项弹窗（选择拍照或相册）
+    if (showOcrOptions) {
+        AlertDialog(
+            onDismissRequest = { showOcrOptions = false },
+            title = { Text("选择图片来源") },
+            text = { Text("请选择获取图片的方式") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showOcrOptions = false
+                    // 检查相机权限
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        val file = File(context.cacheDir, "ocr_photo_${System.currentTimeMillis()}.jpg")
+                        photoUri = FileProvider.getUriForFile(context, "${context.packageName}.image.provider", file)
+                        cameraLauncher.launch(photoUri!!)
+                    } else {
+                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                    }
+                }) {
+                    Text("拍照")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showOcrOptions = false
+                    galleryLauncher.launch("image/*")
+                }) {
+                    Text("相册")
+                }
+            }
+        )
+    }
+
+    // OCR 结果弹窗
+    if (showOcrResult) {
+        ModalBottomSheet(
+            onDismissRequest = { showOcrResult = false }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    "OCR 识别结果",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 识别结果文本
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 300.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = ocrResultText.ifEmpty { "未识别到文字" },
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 操作按钮
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    // 复制到输入框
+                    OutlinedButton(onClick = {
+                        viewModel.updateInputText(ocrResultText)
+                        showOcrResult = false
+                        Toast.makeText(context, "已复制到输入框", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("复制到输入框")
+                    }
+
+                    // 直接发送
+                    Button(onClick = {
+                        if (ocrResultText.isNotBlank()) {
+                            viewModel.updateInputText(ocrResultText)
+                            viewModel.sendMessage()
+                            showOcrResult = false
+                            Toast.makeText(context, "已发送", Toast.LENGTH_SHORT).show()
+                        }
+                    }) {
+                        Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("直接发送")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+
+    // OCR 处理中状态
+    if (ocrState is OcrState.Processing) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
         }
     }
 }

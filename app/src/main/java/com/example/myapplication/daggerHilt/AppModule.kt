@@ -89,7 +89,7 @@ object AppModule {
     @Named("auth")
     fun provideRetrofitAuth(client: OkHttpClient): Retrofit {
         return Retrofit.Builder()
-            .baseUrl("http://192.168.181.15:8081/")   //换成电脑的ip4地址，确保手机和电脑连接同一个网络
+            .baseUrl("http://192.168.148.15:8081/")   //换成电脑的ip4地址，确保手机和电脑连接同一个网络
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

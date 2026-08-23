@@ -1,6 +1,7 @@
 package com.example.myapplication.page.imchat
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -14,10 +15,20 @@ import com.example.myapplication.network.websocket.WebSocketEvent
 import com.example.myapplication.network.websocket.WebSocketManager
 import com.example.myapplication.repository.ConversationRepository
 import com.example.myapplication.repository.MessageRepository
+import com.example.myapplication.utils.OcrPerfTracker
+import com.example.myapplication.utils.OcrPerfResult
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 @HiltViewModel
 class IMChatViewModel @Inject constructor(
@@ -48,6 +59,12 @@ class IMChatViewModel @Inject constructor(
     private val _kickedEvent = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val kickedEvent: SharedFlow<String> = _kickedEvent.asSharedFlow()
 
+    // OCR 相关状态
+    private val _ocrState = MutableStateFlow<OcrState>(OcrState.Idle)
+    val ocrState: StateFlow<OcrState> = _ocrState.asStateFlow()
+
+    private val textRecognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+
     init {
         com.example.myapplication.Const.ActiveChat.open(conversationId)
         loadContactId()
@@ -59,6 +76,7 @@ class IMChatViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         com.example.myapplication.Const.ActiveChat.close()
+        textRecognizer.close()
     }
 
     private fun loadContactId() {
@@ -242,4 +260,103 @@ class IMChatViewModel @Inject constructor(
             messageRepository.resendMessage(messageId)
         }
     }
+
+    /**
+     * 识别图片中的文字 (OCR)
+     * @param context 上下文
+     * @param imageUri 图片URI
+     * @param compress 是否压缩图片（用于性能对比）
+     */
+    fun recognizeText(context: Context, imageUri: Uri, compress: Boolean = true) {
+        viewModelScope.launch {
+            _ocrState.value = OcrState.Processing
+            try {
+                val startTime = System.currentTimeMillis()
+                val runtime = Runtime.getRuntime()
+                val memoryBefore = runtime.totalMemory() - runtime.freeMemory()
+
+                // 读取图片尺寸
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(imageUri)?.use {
+                    BitmapFactory.decodeStream(it, null, options)
+                }
+                val originalWidth = options.outWidth
+                val originalHeight = options.outHeight
+
+                // 创建 InputImage
+                val inputImage = InputImage.fromFilePath(context, imageUri)
+
+                // 执行 OCR 识别
+                val result = withContext(Dispatchers.IO) {
+                    suspendCancellableCoroutine { continuation ->
+                        textRecognizer.process(inputImage)
+                            .addOnSuccessListener { text ->
+                                continuation.resume(text)
+                            }
+                            .addOnFailureListener { exception ->
+                                continuation.resumeWithException(exception)
+                            }
+                    }
+                }
+
+                val endTime = System.currentTimeMillis()
+                val memoryAfter = runtime.totalMemory() - runtime.freeMemory()
+                val memoryDeltaMB = (memoryAfter - memoryBefore) / (1024.0 * 1024.0)
+
+                // 确定分辨率标签
+                val resolutionLabel = when {
+                    originalHeight <= 480 -> "480p"
+                    originalHeight <= 720 -> "720p"
+                    originalHeight <= 1080 -> "1080p"
+                    else -> "${originalHeight}p"
+                }
+
+                // 记录性能数据
+                val perfResult = OcrPerfResult(
+                    imageWidth = originalWidth,
+                    imageHeight = originalHeight,
+                    resolutionLabel = resolutionLabel,
+                    inferenceTimeMs = endTime - startTime,
+                    memoryDeltaMB = memoryDeltaMB,
+                    recognizedTextLength = result.text.length,
+                    isCompressed = compress
+                )
+                OcrPerfTracker.record(perfResult)
+
+                _ocrState.value = OcrState.Success(
+                    text = result.text,
+                    perfResult = perfResult
+                )
+
+                android.util.Log.d("IM_DEBUG", "OCR识别成功: ${result.text.length} chars, 耗时${endTime - startTime}ms")
+            } catch (e: Exception) {
+                android.util.Log.e("IM_DEBUG", "OCR识别失败: ${e.message}")
+                _ocrState.value = OcrState.Error(e.message ?: "识别失败")
+            }
+        }
+    }
+
+    /**
+     * 重置 OCR 状态
+     */
+    fun resetOcrState() {
+        _ocrState.value = OcrState.Idle
+    }
+
+    /**
+     * 打印 OCR 性能汇总
+     */
+    fun printOcrPerfSummary() {
+        OcrPerfTracker.printSummary()
+    }
+}
+
+/**
+ * OCR 状态密封类
+ */
+sealed class OcrState {
+    data object Idle : OcrState()
+    data object Processing : OcrState()
+    data class Success(val text: String, val perfResult: OcrPerfResult) : OcrState()
+    data class Error(val message: String) : OcrState()
 }

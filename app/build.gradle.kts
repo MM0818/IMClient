@@ -98,4 +98,6 @@ dependencies {
     implementation(libs.androidx.paging.compose)
     // MockWebServer (本地Mock测试)
     implementation(libs.okhttp.mockwebserver)
+    // ML Kit OCR 文字识别
+    implementation(libs.mlkit.text.recognition.chinese)
 }
