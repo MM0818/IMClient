@@ -21,8 +21,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.paging.compose.collectAsLazyPagingItems
 import coil.compose.AsyncImage
 import com.example.myapplication.database.im.entity.ConversationEntity
+import com.example.myapplication.database.im.entity.MessageEntity
 import com.example.myapplication.network.user.UserItem
 import com.example.myapplication.network.websocket.WebSocketManager
 import com.example.myapplication.page.login.LoginViewModel
@@ -51,6 +53,8 @@ fun ConversationListPage(
     val connectionState by viewModel.connectionState.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val searchMessagesMode by viewModel.searchMessagesMode.collectAsState()
+    val messageSearchResults = viewModel.messageSearchResults.collectAsLazyPagingItems()
     val users by loginViewModel.users.collectAsState()
     val isLoadingUsers by loginViewModel.isLoadingUsers.collectAsState()
     var showSearch by remember { mutableStateOf(false) }
@@ -121,44 +125,217 @@ fun ConversationListPage(
     ) { paddingValues ->
         Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             if (showSearch) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.updateSearchQuery(it) },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    placeholder = { Text("搜索会话") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.clearSearch() }) {
-                                Icon(Icons.Default.Clear, contentDescription = "清除")
+                Column {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { viewModel.updateSearchQuery(it) },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        placeholder = { Text("搜索") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.clearSearch() }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "清除")
+                                }
                             }
-                        }
-                    },
-                    singleLine = true
-                )
+                        },
+                        singleLine = true
+                    )
+                    // 搜索模式切换：联系人（按名称筛选） / 聊天记录（FTS 全文检索）
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = !searchMessagesMode,
+                            onClick = { if (searchMessagesMode) viewModel.toggleSearchMode() },
+                            label = { Text("联系人") }
+                        )
+                        FilterChip(
+                            selected = searchMessagesMode,
+                            onClick = { if (!searchMessagesMode) viewModel.toggleSearchMode() },
+                            label = { Text("聊天记录") }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
             }
 
-            val displayList = if (searchQuery.isBlank()) conversations else searchResults
-
-            if (displayList.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("暂无会话", color = MaterialTheme.colorScheme.outline)
-                        Text("点击右上角 + 开始聊天", color = MaterialTheme.colorScheme.outline, fontSize = 14.sp)
+            if (searchQuery.isBlank()) {
+                // 无搜索关键词 → 显示完整会话列表
+                ConversationListContent(
+                    conversations = conversations,
+                    onNavigateToChat = onNavigateToChat,
+                    onDeleteConversation = { viewModel.deleteConversation(it) }
+                )
+            } else if (!searchMessagesMode) {
+                // 联系人 Tab：按联系人名称筛选
+                if (searchResults.isEmpty()) {
+                    EmptySearchHint(text = "未找到相关联系人")
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(items = searchResults, key = { it.id }) { conversation ->
+                            ConversationItem(
+                                conversation = conversation,
+                                onClick = {
+                                    showSearch = false
+                                    viewModel.clearSearch()
+                                    onNavigateToChat(conversation.id, conversation.contactName)
+                                },
+                                onDelete = { viewModel.deleteConversation(conversation.id) }
+                            )
+                        }
                     }
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(items = displayList, key = { it.id }) { conversation ->
-                        ConversationItem(
-                            conversation = conversation,
-                            onClick = { onNavigateToChat(conversation.id, conversation.contactName) },
-                            onDelete = { viewModel.deleteConversation(conversation.id) }
-                        )
+                // 聊天记录 Tab：FTS 全文检索消息内容
+                MessageSearchResults(
+                    messageSearchResults = messageSearchResults,
+                    viewModel = viewModel,
+                    onNavigateToChat = { conversationId, contactName ->
+                        showSearch = false
+                        viewModel.clearSearch()
+                        onNavigateToChat(conversationId, contactName)
                     }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConversationListContent(
+    conversations: List<ConversationEntity>,
+    onNavigateToChat: (String, String) -> Unit,
+    onDeleteConversation: (String) -> Unit
+) {
+    if (conversations.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("暂无会话", color = MaterialTheme.colorScheme.outline)
+                Text("点击右上角 + 开始聊天", color = MaterialTheme.colorScheme.outline, fontSize = 14.sp)
+            }
+        }
+    } else {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(items = conversations, key = { it.id }) { conversation ->
+                ConversationItem(
+                    conversation = conversation,
+                    onClick = { onNavigateToChat(conversation.id, conversation.contactName) },
+                    onDelete = { onDeleteConversation(conversation.id) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptySearchHint(text: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text, color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+@Composable
+private fun MessageSearchResults(
+    messageSearchResults: androidx.paging.compose.LazyPagingItems<MessageEntity>,
+    viewModel: ConversationListViewModel,
+    onNavigateToChat: (conversationId: String, contactName: String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+
+    if (messageSearchResults.itemCount == 0) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("未找到相关消息", color = MaterialTheme.colorScheme.outline)
+            }
+        }
+    } else {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(messageSearchResults.itemCount) { index ->
+                val message = messageSearchResults[index]
+                if (message != null) {
+                    MessageSearchItem(
+                        message = message,
+                        viewModel = viewModel,
+                        onClick = {
+                            scope.launch {
+                                val contactName = viewModel.getConversationName(message.conversationId)
+                                onNavigateToChat(message.conversationId, contactName)
+                            }
+                        }
+                    )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageSearchItem(
+    message: MessageEntity,
+    viewModel: ConversationListViewModel,
+    onClick: () -> Unit
+) {
+    val formattedTime = remember(message.timestamp) { formatTime(message.timestamp) }
+    // 通过 conversationId 查询会话对方名称，避免显示 senderId UUID
+    var contactName by remember { mutableStateOf("") }
+    LaunchedEffect(message.conversationId) {
+        contactName = viewModel.getConversationName(message.conversationId)
+    }
+    val senderLabel = if (message.isFromMe) "我" else contactName.ifEmpty { "对方" }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                Icons.Default.Email,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp).padding(top = 2.dp),
+                tint = MaterialTheme.colorScheme.outline
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = senderLabel,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = formattedTime,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = message.content,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

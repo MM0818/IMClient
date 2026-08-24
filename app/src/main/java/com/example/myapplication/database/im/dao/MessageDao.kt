@@ -87,8 +87,26 @@ interface MessageDao {
     suspend fun getPendingMessages(ownerUserId: String): List<MessageEntity>
 
     /**
-     * 搜索消息
+     * 搜索消息（跨会话，FTS4 前缀匹配）
+     * keyword || '*' 实现前缀搜索：输入 "ye" 匹配 "yes"、"year" 等
      */
-    @Query("SELECT * FROM messages WHERE ownerUserId = :ownerUserId AND content LIKE '%' || :keyword || '%' ORDER BY timestamp DESC")
-    fun searchMessages(keyword: String, ownerUserId: String): PagingSource<Int, MessageEntity>
+    @Query("""
+        SELECT m.* FROM messages m
+        JOIN messages_fts fts ON m.rowid = fts.rowid
+        WHERE fts.content MATCH :keyword || '*' AND m.ownerUserId = :ownerUserId
+        ORDER BY m.timestamp DESC
+    """)
+    fun searchMessagesFts(keyword: String, ownerUserId: String): PagingSource<Int, MessageEntity>
+
+    /**
+     * 搜索消息（指定会话内，FTS4 前缀匹配）
+     */
+    @Query("""
+        SELECT m.* FROM messages m
+        JOIN messages_fts fts ON m.rowid = fts.rowid
+        WHERE fts.content MATCH :keyword || '*' AND m.conversationId = :conversationId AND m.ownerUserId = :ownerUserId
+        ORDER BY m.timestamp DESC
+    """)
+    fun searchMessagesInConversationFts(keyword: String, conversationId: String, ownerUserId: String): PagingSource<Int, MessageEntity>
+
 }

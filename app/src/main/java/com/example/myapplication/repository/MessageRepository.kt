@@ -187,7 +187,7 @@ class MessageRepository @Inject constructor(
     }
 
     /**
-     * 搜索消息
+     * 搜索消息（跨会话，FTS4 前缀匹配）
      */
     fun searchMessages(keyword: String): Flow<PagingData<MessageEntity>> {
         val ownerUserId = com.example.myapplication.Const.Token.USER_ID
@@ -196,7 +196,21 @@ class MessageRepository @Inject constructor(
                 pageSize = PAGE_SIZE,
                 enablePlaceholders = false
             ),
-            pagingSourceFactory = { messageDao.searchMessages(keyword, ownerUserId) }
+            pagingSourceFactory = { messageDao.searchMessagesFts(keyword, ownerUserId) }
+        ).flow
+    }
+
+    /**
+     * 搜索消息（指定会话内，FTS4 前缀匹配）
+     */
+    fun searchMessagesInConversation(keyword: String, conversationId: String): Flow<PagingData<MessageEntity>> {
+        val ownerUserId = com.example.myapplication.Const.Token.USER_ID
+        return Pager(
+            config = PagingConfig(
+                pageSize = PAGE_SIZE,
+                enablePlaceholders = false
+            ),
+            pagingSourceFactory = { messageDao.searchMessagesInConversationFts(keyword, conversationId, ownerUserId) }
         ).flow
     }
 

@@ -128,13 +128,12 @@ interface ConversationDao {
     fun getTotalUnreadCount(ownerUserId: String): Flow<Int?>
 
     /**
-     * 搜索会话
+     * 搜索会话（仅按联系人名称筛选）
      */
     @Query("""
         SELECT * FROM conversations
         WHERE ownerUserId = :ownerUserId
-        AND (contactName LIKE '%' || :keyword || '%'
-        OR lastMessage LIKE '%' || :keyword || '%')
+        AND contactName LIKE '%' || :keyword || '%'
         ORDER BY lastMessageTime DESC
     """)
     fun searchConversations(keyword: String, ownerUserId: String): Flow<List<ConversationEntity>>

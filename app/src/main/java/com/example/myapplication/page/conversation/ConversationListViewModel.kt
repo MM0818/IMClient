@@ -2,13 +2,17 @@ package com.example.myapplication.page.conversation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import com.example.myapplication.Const.Token
 import com.example.myapplication.Const.WebSocketUrl
 import com.example.myapplication.database.im.entity.ConversationEntity
+import com.example.myapplication.database.im.entity.MessageEntity
 import com.example.myapplication.network.mock.MockWebSocketServer
 import com.example.myapplication.network.websocket.WebSocketEvent
 import com.example.myapplication.network.websocket.WebSocketManager
 import com.example.myapplication.repository.ConversationRepository
+import com.example.myapplication.repository.MessageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -21,7 +25,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ConversationListViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
-    private val messageRepository: com.example.myapplication.repository.MessageRepository,
+    private val messageRepository: MessageRepository,
     private val webSocketManager: WebSocketManager
 ) : ViewModel() {
 
@@ -39,6 +43,10 @@ class ConversationListViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
+    // 搜索模式：false=搜索会话, true=搜索消息
+    private val _searchMessagesMode = MutableStateFlow(false)
+    val searchMessagesMode = _searchMessagesMode.asStateFlow()
+
     // 被踢下线事件（UI观察后跳转登录页+Toast）
     private val _kickedEvent = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val kickedEvent: SharedFlow<String> = _kickedEvent.asSharedFlow()
@@ -52,6 +60,18 @@ class ConversationListViewModel @Inject constructor(
                 else conversationRepository.searchConversations(query)
             }
             .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    // 消息搜索结果（FTS4 全文检索）
+    @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+    val messageSearchResults: StateFlow<PagingData<MessageEntity>> =
+        _searchQuery
+            .debounce(300)
+            .flatMapLatest { query ->
+                if (query.isBlank()) flowOf(PagingData.empty())
+                else messageRepository.searchMessages(query)
+            }
+            .cachedIn(viewModelScope)
+            .stateIn(viewModelScope, SharingStarted.Lazily, PagingData.empty())
 
     private var mockServer: MockWebSocketServer? = null
 
@@ -130,7 +150,22 @@ class ConversationListViewModel @Inject constructor(
     }
 
     fun updateSearchQuery(query: String) { _searchQuery.value = query }
-    fun clearSearch() { _searchQuery.value = "" }
+    fun clearSearch() {
+        _searchQuery.value = ""
+        _searchMessagesMode.value = false
+        conversationNameCache.clear()
+    }
+    fun toggleSearchMode() { _searchMessagesMode.value = !_searchMessagesMode.value }
+
+    // 会话联系人名称缓存（避免消息搜索结果中每条都查库）
+    private val conversationNameCache = mutableMapOf<String, String>()
+
+    suspend fun getConversationName(conversationId: String): String {
+        conversationNameCache[conversationId]?.let { return it }
+        val name = conversationRepository.getConversationById(conversationId)?.contactName ?: ""
+        conversationNameCache[conversationId] = name
+        return name
+    }
     fun deleteConversation(id: String) { viewModelScope.launch { conversationRepository.deleteConversation(id) } }
     fun setTop(id: String, isTop: Boolean) { viewModelScope.launch { conversationRepository.setTop(id, isTop) } }
     fun setMuted(id: String, isMuted: Boolean) { viewModelScope.launch { conversationRepository.setMuted(id, isMuted) } }

@@ -8,14 +8,15 @@ import com.example.myapplication.database.im.dao.ConversationDao
 import com.example.myapplication.database.im.dao.MessageDao
 import com.example.myapplication.database.im.entity.ConversationEntity
 import com.example.myapplication.database.im.entity.MessageEntity
+import com.example.myapplication.database.im.entity.MessageFtsEntity
 
 /**
  * IM数据库
  * 包含messages和conversations双表
  */
 @Database(
-    entities = [MessageEntity::class, ConversationEntity::class],
-    version = 3,
+    entities = [MessageEntity::class, ConversationEntity::class, MessageFtsEntity::class],
+    version = 6,
     exportSchema = false
 )
 abstract class IMDatabase : RoomDatabase() {
