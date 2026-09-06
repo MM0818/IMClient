@@ -51,6 +51,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import com.example.myapplication.R
 import com.example.myapplication.database.chatHistory.ChatHistory
+import com.example.myapplication.database.chatHistory.ChatMessage
+import com.example.myapplication.network.eachChatRecord.Block
 import com.example.myapplication.navigation.Screen
 import com.example.myapplication.ui.theme.LightModeColor
 
@@ -154,4 +156,67 @@ fun RecordPageTopBar() {
         )
     }
 
+}
+
+@Preview(showBackground = true, name = "Chat Record Item")
+@Composable
+private fun ChatRecordItemPreview() {
+    MaterialTheme {
+        ChatRecordItem(
+            chatHistory = ChatHistory(
+                id = 1,
+                model = "GPT-4",
+                content = listOf(
+                    ChatMessage(
+                        role = "user",
+                        content = listOf(Block(text = "帮我写一个Hello World", type = 0))
+                    ),
+                    ChatMessage(
+                        role = "assistant",
+                        content = listOf(Block(text = "好的，这是一个简单的Hello World程序...", type = 0))
+                    )
+                )
+            )
+        ) {}
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "Record Page")
+@Composable
+private fun RecordPagePreview() {
+    MaterialTheme {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(color = LightModeColor.BackGroundColor)
+        ) {
+            RecordPageTopBar()
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(3) { index ->
+                    ChatRecordItem(
+                        chatHistory = ChatHistory(
+                            id = index,
+                            model = "GPT-4",
+                            content = listOf(
+                                ChatMessage(
+                                    role = "user",
+                                    content = listOf(Block(text = "对话 ${index + 1} 的第一条消息", type = 0))
+                                )
+                            )
+                        )
+                    ) {}
+                }
+            }
+            Button(
+                onClick = {},
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .navigationBarsPadding(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Add a new chat")
+            }
+        }
+    }
 }

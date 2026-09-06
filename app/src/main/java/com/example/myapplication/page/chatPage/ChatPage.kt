@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -560,6 +561,83 @@ fun FileCard(content: Pair<String, String>, fileStatus: Int, cancelFile: () -> U
                     )
             )
         }
+    }
+}
+
+@Preview(showBackground = true, name = "User Message")
+@Composable
+private fun UserMessagePreview() {
+    MaterialTheme {
+        UserMessage(
+            message = listOf(Block(text = "帮我写一个排序算法", type = 0))
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "AI Message")
+@Composable
+private fun AiMessagePreview() {
+    MaterialTheme {
+        AiMessage(
+            message = listOf(Block(text = "好的，这是一个快速排序的实现...", type = 0))
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Chat - Conversation")
+@Composable
+private fun ChatConversationPreview() {
+    MaterialTheme {
+        Column(modifier = Modifier.fillMaxSize()) {
+            UserMessage(
+                message = listOf(Block(text = "什么是 Jetpack Compose？", type = 0))
+            )
+            AiMessage(
+                message = listOf(Block(text = "Jetpack Compose 是 Android 的现代 UI 工具包，采用声明式编程模型。", type = 0))
+            )
+            UserMessage(
+                message = listOf(Block(text = "能给我个例子吗？", type = 0))
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true, name = "File Card - Uploading")
+@Composable
+private fun FileCardUploadingPreview() {
+    MaterialTheme {
+        FileCard(
+            content = Pair("document.pdf", "document"),
+            fileStatus = 0,
+            cancelFile = {},
+            reUpload = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "File Card - Success")
+@Composable
+private fun FileCardSuccessPreview() {
+    MaterialTheme {
+        FileCard(
+            content = Pair("image.jpg", "image"),
+            fileStatus = 1,
+            cancelFile = {},
+            reUpload = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "File Card - Failed")
+@Composable
+private fun FileCardFailedPreview() {
+    MaterialTheme {
+        FileCard(
+            content = Pair("report.xlsx", "document"),
+            fileStatus = 2,
+            cancelFile = {},
+            reUpload = {}
+        )
     }
 }
 

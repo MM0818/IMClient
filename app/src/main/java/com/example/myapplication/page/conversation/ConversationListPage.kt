@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
 import coil.compose.AsyncImage
@@ -488,4 +489,75 @@ private fun NewConversationDialog(
             }
         }
     )
+}
+
+@Preview(showBackground = true, name = "Conversation Item - Normal")
+@Composable
+private fun ConversationItemPreview() {
+    MaterialTheme {
+        ConversationItem(
+            conversation = ConversationEntity(
+                id = "1",
+                contactId = "user2",
+                contactName = "张三",
+                lastMessage = "你好，最近怎么样？",
+                lastMessageTime = System.currentTimeMillis() - 300_000,
+                unreadCount = 0
+            ),
+            onClick = {},
+            onDelete = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Conversation Item - Unread")
+@Composable
+private fun ConversationItemUnreadPreview() {
+    MaterialTheme {
+        ConversationItem(
+            conversation = ConversationEntity(
+                id = "2",
+                contactId = "user3",
+                contactName = "李四",
+                lastMessage = "明天一起吃饭吗？",
+                lastMessageTime = System.currentTimeMillis() - 60_000,
+                unreadCount = 5
+            ),
+            onClick = {},
+            onDelete = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Conversation Item - Top + Muted")
+@Composable
+private fun ConversationItemTopPreview() {
+    MaterialTheme {
+        ConversationItem(
+            conversation = ConversationEntity(
+                id = "3",
+                contactId = "user4",
+                contactName = "工作群",
+                lastMessage = "收到，马上处理",
+                lastMessageTime = System.currentTimeMillis() - 3600_000,
+                unreadCount = 99,
+                isTop = true,
+                isMuted = true
+            ),
+            onClick = {},
+            onDelete = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "Conversation List - Empty")
+@Composable
+private fun ConversationListEmptyPreview() {
+    MaterialTheme {
+        ConversationListContent(
+            conversations = emptyList(),
+            onNavigateToChat = { _, _ -> },
+            onDeleteConversation = {}
+        )
+    }
 }

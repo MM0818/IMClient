@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -695,5 +696,144 @@ private fun DoubleCheckIcon(tint: Color) {
 @Composable
 private fun LaunchedMessages(itemCount: Int, block: suspend () -> Unit) {
     LaunchedEffect(itemCount) { block() }
+}
+
+@Preview(showBackground = true, name = "Message - Text Sent")
+@Composable
+private fun MessageItemSentPreview() {
+    MaterialTheme {
+        MessageItem(
+            message = MessageEntity(
+                id = "1",
+                conversationId = "conv1",
+                senderId = "me",
+                receiverId = "other",
+                content = "你好，这是一条测试消息！",
+                type = "TEXT",
+                status = "SENT",
+                timestamp = System.currentTimeMillis(),
+                isFromMe = true
+            )
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Message - Text Received")
+@Composable
+private fun MessageItemReceivedPreview() {
+    MaterialTheme {
+        MessageItem(
+            message = MessageEntity(
+                id = "2",
+                conversationId = "conv1",
+                senderId = "other",
+                receiverId = "me",
+                content = "收到，我马上处理！",
+                type = "TEXT",
+                status = "DELIVERED",
+                timestamp = System.currentTimeMillis(),
+                isFromMe = false
+            )
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Message - Sending")
+@Composable
+private fun MessageItemSendingPreview() {
+    MaterialTheme {
+        MessageItem(
+            message = MessageEntity(
+                id = "3",
+                conversationId = "conv1",
+                senderId = "me",
+                receiverId = "other",
+                content = "正在发送中...",
+                type = "TEXT",
+                status = "SENDING",
+                timestamp = System.currentTimeMillis(),
+                isFromMe = true
+            )
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Message - Failed")
+@Composable
+private fun MessageItemFailedPreview() {
+    MaterialTheme {
+        MessageItem(
+            message = MessageEntity(
+                id = "4",
+                conversationId = "conv1",
+                senderId = "me",
+                receiverId = "other",
+                content = "发送失败的消息",
+                type = "TEXT",
+                status = "FAILED",
+                timestamp = System.currentTimeMillis(),
+                isFromMe = true
+            )
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Message - File")
+@Composable
+private fun MessageItemFilePreview() {
+    MaterialTheme {
+        MessageItem(
+            message = MessageEntity(
+                id = "5",
+                conversationId = "conv1",
+                senderId = "other",
+                receiverId = "me",
+                content = "文档.pdf",
+                type = "FILE",
+                status = "DELIVERED",
+                timestamp = System.currentTimeMillis(),
+                isFromMe = false,
+                fileName = "项目需求文档.pdf",
+                fileSize = 2_560_000
+            )
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Message - Conversation")
+@Composable
+private fun MessageConversationPreview() {
+    MaterialTheme {
+        Column(modifier = Modifier.padding(8.dp)) {
+            MessageItem(
+                message = MessageEntity(
+                    id = "m1", conversationId = "c1", senderId = "other", receiverId = "me",
+                    content = "在吗？有个问题想请教你", type = "TEXT", status = "DELIVERED",
+                    timestamp = System.currentTimeMillis() - 300_000, isFromMe = false
+                )
+            )
+            MessageItem(
+                message = MessageEntity(
+                    id = "m2", conversationId = "c1", senderId = "me", receiverId = "other",
+                    content = "在的，什么问题？", type = "TEXT", status = "SENT",
+                    timestamp = System.currentTimeMillis() - 240_000, isFromMe = true
+                )
+            )
+            MessageItem(
+                message = MessageEntity(
+                    id = "m3", conversationId = "c1", senderId = "other", receiverId = "me",
+                    content = "Compose 的 @Preview 怎么用啊？", type = "TEXT", status = "DELIVERED",
+                    timestamp = System.currentTimeMillis() - 180_000, isFromMe = false
+                )
+            )
+            MessageItem(
+                message = MessageEntity(
+                    id = "m4", conversationId = "c1", senderId = "me", receiverId = "other",
+                    content = "加个 @Preview 注解就行，很简单", type = "TEXT", status = "SENT",
+                    timestamp = System.currentTimeMillis() - 120_000, isFromMe = true
+                )
+            )
+        }
+    }
 }
 

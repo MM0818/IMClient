@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 
@@ -41,6 +42,37 @@ fun RegisterPage(
         viewModel.diagnoseNetwork()
     }
 
+    RegisterPageContent(
+        username = username,
+        email = email,
+        password = password,
+        confirmPassword = confirmPassword,
+        isLoading = isLoading,
+        errorMessage = errorMessage,
+        onUsernameChange = { viewModel.updateUsername(it) },
+        onEmailChange = { viewModel.updateEmail(it) },
+        onPasswordChange = { viewModel.updatePassword(it) },
+        onConfirmPasswordChange = { viewModel.updateConfirmPassword(it) },
+        onRegisterClick = { viewModel.register() },
+        onBackToLoginClick = { navController.popBackStack() }
+    )
+}
+
+@Composable
+private fun RegisterPageContent(
+    username: String,
+    email: String,
+    password: String,
+    confirmPassword: String,
+    isLoading: Boolean,
+    errorMessage: String,
+    onUsernameChange: (String) -> Unit = {},
+    onEmailChange: (String) -> Unit = {},
+    onPasswordChange: (String) -> Unit = {},
+    onConfirmPasswordChange: (String) -> Unit = {},
+    onRegisterClick: () -> Unit = {},
+    onBackToLoginClick: () -> Unit = {}
+) {
     Scaffold(modifier = Modifier.fillMaxSize()) { paddingValues ->
         Column(
             modifier = Modifier
@@ -66,7 +98,7 @@ fun RegisterPage(
 
             OutlinedTextField(
                 value = username,
-                onValueChange = { viewModel.updateUsername(it) },
+                onValueChange = onUsernameChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("用户名") },
                 leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
@@ -79,7 +111,7 @@ fun RegisterPage(
 
             OutlinedTextField(
                 value = email,
-                onValueChange = { viewModel.updateEmail(it) },
+                onValueChange = onEmailChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("邮箱") },
                 leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
@@ -92,7 +124,7 @@ fun RegisterPage(
 
             OutlinedTextField(
                 value = password,
-                onValueChange = { viewModel.updatePassword(it) },
+                onValueChange = onPasswordChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("密码") },
                 leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
@@ -106,7 +138,7 @@ fun RegisterPage(
 
             OutlinedTextField(
                 value = confirmPassword,
-                onValueChange = { viewModel.updateConfirmPassword(it) },
+                onValueChange = onConfirmPasswordChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("确认密码") },
                 leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
@@ -128,7 +160,7 @@ fun RegisterPage(
             Spacer(modifier = Modifier.height(24.dp))
 
             Button(
-                onClick = { viewModel.register() },
+                onClick = onRegisterClick,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 enabled = !isLoading && username.isNotEmpty() && password.isNotEmpty() && confirmPassword.isNotEmpty() && email.isNotEmpty()
             ) {
@@ -141,9 +173,39 @@ fun RegisterPage(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            TextButton(onClick = { navController.popBackStack() }) {
+            TextButton(onClick = onBackToLoginClick) {
                 Text("已有账号？返回登录")
             }
         }
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun RegisterPagePreview() {
+    MaterialTheme {
+        RegisterPageContent(
+            username = "",
+            email = "",
+            password = "",
+            confirmPassword = "",
+            isLoading = false,
+            errorMessage = ""
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "Register - With Data")
+@Composable
+private fun RegisterPageFilledPreview() {
+    MaterialTheme {
+        RegisterPageContent(
+            username = "newuser",
+            email = "new@example.com",
+            password = "pass123",
+            confirmPassword = "pass123",
+            isLoading = false,
+            errorMessage = ""
+        )
     }
 }

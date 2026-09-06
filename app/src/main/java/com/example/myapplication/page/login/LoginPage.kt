@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 
@@ -37,6 +38,29 @@ fun LoginPage(
         }
     }
 
+    LoginPageContent(
+        username = username,
+        password = password,
+        isLoading = isLoading,
+        errorMessage = errorMessage,
+        onUsernameChange = { viewModel.updateUsername(it) },
+        onPasswordChange = { viewModel.updatePassword(it) },
+        onLoginClick = { viewModel.login() },
+        onRegisterClick = { navController.navigate("register") }
+    )
+}
+
+@Composable
+private fun LoginPageContent(
+    username: String,
+    password: String,
+    isLoading: Boolean,
+    errorMessage: String,
+    onUsernameChange: (String) -> Unit = {},
+    onPasswordChange: (String) -> Unit = {},
+    onLoginClick: () -> Unit = {},
+    onRegisterClick: () -> Unit = {}
+) {
     Scaffold(modifier = Modifier.fillMaxSize()) { paddingValues ->
         Column(
             modifier = Modifier
@@ -62,7 +86,7 @@ fun LoginPage(
 
             OutlinedTextField(
                 value = username,
-                onValueChange = { viewModel.updateUsername(it) },
+                onValueChange = onUsernameChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("用户名") },
                 leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
@@ -75,7 +99,7 @@ fun LoginPage(
 
             OutlinedTextField(
                 value = password,
-                onValueChange = { viewModel.updatePassword(it) },
+                onValueChange = onPasswordChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("密码") },
                 leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
@@ -97,7 +121,7 @@ fun LoginPage(
             Spacer(modifier = Modifier.height(32.dp))
 
             Button(
-                onClick = { viewModel.login() },
+                onClick = onLoginClick,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 enabled = !isLoading && username.isNotEmpty() && password.isNotEmpty()
             ) {
@@ -110,9 +134,48 @@ fun LoginPage(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            TextButton(onClick = { navController.navigate("register") }) {
+            TextButton(onClick = onRegisterClick) {
                 Text("还没有账号？立即注册")
             }
         }
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun LoginPagePreview() {
+    MaterialTheme {
+        LoginPageContent(
+            username = "",
+            password = "",
+            isLoading = false,
+            errorMessage = ""
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "Login - With Error")
+@Composable
+private fun LoginPageErrorPreview() {
+    MaterialTheme {
+        LoginPageContent(
+            username = "testuser",
+            password = "123",
+            isLoading = false,
+            errorMessage = "用户名或密码错误"
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "Login - Loading")
+@Composable
+private fun LoginPageLoadingPreview() {
+    MaterialTheme {
+        LoginPageContent(
+            username = "testuser",
+            password = "password",
+            isLoading = true,
+            errorMessage = ""
+        )
     }
 }

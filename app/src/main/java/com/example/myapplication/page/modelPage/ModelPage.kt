@@ -122,3 +122,23 @@ fun ModelListItem(id:Int,chat:(model:String)->Unit) {
         }
     }
 }
+
+@Preview(showBackground = true, name = "Model List Item")
+@Composable
+private fun ModelListItemPreview() {
+    MaterialTheme {
+        ModelListItem(id = 0) {}
+    }
+}
+
+@Preview(showBackground = true, name = "Model List - Multiple Items")
+@Composable
+private fun ModelListPreview() {
+    MaterialTheme {
+        LazyColumn(modifier = Modifier.fillMaxSize().background(LightModeColor.BackGroundColor)) {
+            items(com.example.myapplication.Const.ModelList.modelStore.size) {
+                ModelListItem(id = it) {}
+            }
+        }
+    }
+}
