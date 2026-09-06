@@ -52,7 +52,7 @@ class MessageRepository @Inject constructor(
                 enablePlaceholders = false,
                 prefetchDistance = 5
             ),
-            pagingSourceFactory = { messageDao.getMessagesByConversationId(conversationId) }
+            pagingSourceFactory = { messageDao.getMessagesByConversationId(conversationId, com.example.myapplication.Const.Token.USER_ID) }
         ).flow
     }
 
@@ -60,7 +60,7 @@ class MessageRepository @Inject constructor(
      * 获取会话最新消息（Flow）
      */
     fun getLatestMessages(conversationId: String, limit: Int = 50): Flow<List<MessageEntity>> {
-        return messageDao.getMessagesFlow(conversationId, limit)
+        return messageDao.getMessagesFlow(conversationId, com.example.myapplication.Const.Token.USER_ID, limit)
     }
 
     /**
@@ -188,7 +188,7 @@ class MessageRepository @Inject constructor(
      * 清空会话消息
      */
     suspend fun clearConversationMessages(conversationId: String) {
-        messageDao.deleteMessagesByConversationId(conversationId)
+        messageDao.deleteMessagesByConversationId(conversationId, com.example.myapplication.Const.Token.USER_ID)
     }
 
     /**
@@ -223,7 +223,7 @@ class MessageRepository @Inject constructor(
      * 获取消息数量
      */
     suspend fun getMessageCount(conversationId: String): Int {
-        return messageDao.getMessageCount(conversationId)
+        return messageDao.getMessageCount(conversationId, com.example.myapplication.Const.Token.USER_ID)
     }
 
     /**

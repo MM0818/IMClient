@@ -155,7 +155,7 @@ class ConversationRepository @Inject constructor(
      */
     suspend fun deleteConversation(conversationId: String) {
         conversationDao.deleteConversation(conversationId)
-        messageDao.deleteMessagesByConversationId(conversationId)
+        messageDao.deleteMessagesByConversationId(conversationId, com.example.myapplication.Const.Token.USER_ID)
     }
 
     /**

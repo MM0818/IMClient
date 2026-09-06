@@ -53,20 +53,20 @@ interface MessageDao {
      * 按本地入库时间倒序排列，最新消息在前
      * 使用createdAt而非timestamp，因为createdAt统一使用本设备时钟，不存在跨设备时钟差异
      */
-    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt DESC")
-    fun getMessagesByConversationId(conversationId: String): PagingSource<Int, MessageEntity>
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND ownerUserId = :ownerUserId ORDER BY createdAt DESC")
+    fun getMessagesByConversationId(conversationId: String, ownerUserId: String): PagingSource<Int, MessageEntity>
 
     /**
      * 获取会话消息列表（Flow，用于实时更新）
      */
-    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt DESC LIMIT :limit")
-    fun getMessagesFlow(conversationId: String, limit: Int = 50): Flow<List<MessageEntity>>
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND ownerUserId = :ownerUserId ORDER BY createdAt DESC LIMIT :limit")
+    fun getMessagesFlow(conversationId: String, ownerUserId: String, limit: Int = 50): Flow<List<MessageEntity>>
 
     /**
      * 获取最新消息
      */
-    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt DESC LIMIT 1")
-    suspend fun getLatestMessage(conversationId: String): MessageEntity?
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND ownerUserId = :ownerUserId ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getLatestMessage(conversationId: String, ownerUserId: String): MessageEntity?
 
     /**
      * 根据ID获取消息
@@ -77,8 +77,8 @@ interface MessageDao {
     /**
      * 删除会话的所有消息
      */
-    @Query("DELETE FROM messages WHERE conversationId = :conversationId")
-    suspend fun deleteMessagesByConversationId(conversationId: String)
+    @Query("DELETE FROM messages WHERE conversationId = :conversationId AND ownerUserId = :ownerUserId")
+    suspend fun deleteMessagesByConversationId(conversationId: String, ownerUserId: String)
 
     /**
      * 删除单条消息
@@ -89,8 +89,8 @@ interface MessageDao {
     /**
      * 获取会话消息总数
      */
-    @Query("SELECT COUNT(*) FROM messages WHERE conversationId = :conversationId")
-    suspend fun getMessageCount(conversationId: String): Int
+    @Query("SELECT COUNT(*) FROM messages WHERE conversationId = :conversationId AND ownerUserId = :ownerUserId")
+    suspend fun getMessageCount(conversationId: String, ownerUserId: String): Int
 
     /**
      * 获取所有未发送成功的消息

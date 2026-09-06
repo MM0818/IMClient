@@ -486,7 +486,7 @@ private fun MessageItem(
     onImageClick: (String) -> Unit = {},
     onLongPress: (MessageEntity) -> Unit = {}
 ) {
-    val isFromMe = remember(message) { message.isFromMe }
+    val isFromMe = remember(message.senderId) { message.senderId == com.example.myapplication.Const.Token.USER_ID }
     val formattedTime = remember(message.timestamp) {
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))
     }
