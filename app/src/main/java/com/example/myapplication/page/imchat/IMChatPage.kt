@@ -7,7 +7,9 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.*
+import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,6 +43,8 @@ import coil.compose.AsyncImage
 import com.example.myapplication.database.im.entity.MessageEntity
 import com.example.myapplication.network.websocket.MessageStatus
 import com.example.myapplication.network.websocket.MessageType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -72,6 +77,12 @@ fun IMChatPage(
     var showOcrOptions by remember { mutableStateOf(false) }
     var ocrResultText by remember { mutableStateOf("") }
     var photoUri by remember { mutableStateOf<Uri?>(null) }
+
+    // 图片查看器状态
+    var viewerImageUrl by remember { mutableStateOf<String?>(null) }
+
+    // 长按上下文菜单状态
+    var contextMenuMessage by remember { mutableStateOf<MessageEntity?>(null) }
 
     // 拍照 launcher
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -260,7 +271,9 @@ fun IMChatPage(
                         messages[index]?.let { entity ->
                             MessageItem(
                                 message = entity,
-                                onRetryClick = { viewModel.resendMessage(entity.id) }
+                                onRetryClick = { viewModel.resendMessage(entity.id) },
+                                onImageClick = { url -> viewerImageUrl = url },
+                                onLongPress = { msg -> contextMenuMessage = msg }
                             )
                         }
                     }
@@ -379,11 +392,100 @@ fun IMChatPage(
             CircularProgressIndicator()
         }
     }
+
+    // 图片全屏查看器
+    if (viewerImageUrl != null) {
+        Dialog(onDismissRequest = { viewerImageUrl = null }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable { viewerImageUrl = null },
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = viewerImageUrl,
+                    contentDescription = "查看图片",
+                    modifier = Modifier.fillMaxWidth(),
+                    contentScale = ContentScale.Fit
+                )
+                // 关闭按钮
+                IconButton(
+                    onClick = { viewerImageUrl = null },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "关闭", tint = Color.White)
+                }
+            }
+        }
+    }
+
+    // 长按上下文菜单（Dialog 实现，不受 LazyColumn/clip 影响）
+    val menuMsg = contextMenuMessage
+    if (menuMsg != null && (menuMsg.type == "IMAGE" || menuMsg.type == "FILE")) {
+        val menuType = menuMsg.type
+        val fileUrl = menuMsg.fileUrl.ifEmpty {
+            if (menuMsg.content.startsWith("http")) menuMsg.content else ""
+        }
+        if (fileUrl.isNotEmpty()) {
+            android.util.Log.d("IM_DEBUG", "[MENU-Dialog] 显示菜单, type=$menuType, url=$fileUrl")
+            Dialog(onDismissRequest = { contextMenuMessage = null }) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    tonalElevation = 3.dp,
+                    shadowElevation = 8.dp
+                ) {
+                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                        if (menuType == "IMAGE") {
+                            TextButton(
+                                onClick = {
+                                    contextMenuMessage = null
+                                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                                        val success = com.example.myapplication.utils.DownloadUtils.saveImageToGallery(context, fileUrl, menuMsg.fileName.ifEmpty { "image_${menuMsg.id}.jpg" })
+                                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, if (success) "已保存到相册" else "保存失败", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("保存到相册")
+                            }
+                        } else if (menuType == "FILE") {
+                            TextButton(
+                                onClick = {
+                                    contextMenuMessage = null
+                                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                                        val success = com.example.myapplication.utils.DownloadUtils.saveFileToDownloads(context, fileUrl, menuMsg.fileName.ifEmpty { menuMsg.content })
+                                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, if (success) "已保存到下载" else "保存失败", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("保存到下载")
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // fileUrl 为空，不显示菜单
+            android.util.Log.d("IM_DEBUG", "[MENU-Dialog] url为空，跳过, type=$menuType, content=${menuMsg.content}")
+            contextMenuMessage = null
+        }
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageItem(message: MessageEntity, onRetryClick: () -> Unit = {}) {
-    // 使用remember缓存计算结果，避免不必要的重组
+private fun MessageItem(
+    message: MessageEntity,
+    onRetryClick: () -> Unit = {},
+    onImageClick: (String) -> Unit = {},
+    onLongPress: (MessageEntity) -> Unit = {}
+) {
     val isFromMe = remember(message) { message.isFromMe }
     val formattedTime = remember(message.timestamp) {
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))
@@ -410,15 +512,25 @@ private fun MessageItem(message: MessageEntity, onRetryClick: () -> Unit = {}) {
                     .clip(bubbleShape)
                     .background(if (isFromMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
                     .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .combinedClickable(
+                        onClick = {},
+                        onLongClick = { onLongPress(message) }
+                    )
             ) {
                 when (messageType) {
                     "IMAGE" -> {
-                        // 图片消息
-                        if (message.fileUrl.isNotEmpty()) {
+                        val imageUrl = message.fileUrl.ifEmpty {
+                            if (message.content.startsWith("http")) message.content else ""
+                        }
+                        if (imageUrl.isNotEmpty()) {
                             AsyncImage(
-                                model = message.fileUrl,
+                                model = imageUrl,
                                 contentDescription = "图片",
-                                modifier = Modifier.widthIn(max = 200.dp).heightIn(max = 200.dp),
+                                modifier = Modifier.widthIn(max = 200.dp).heightIn(max = 200.dp)
+                                    .combinedClickable(
+                                        onClick = { onImageClick(imageUrl) },
+                                        onLongClick = { onLongPress(message) }
+                                    ),
                                 contentScale = ContentScale.Fit
                             )
                         } else if (message.thumbnailUrl.isNotEmpty()) {
@@ -429,7 +541,6 @@ private fun MessageItem(message: MessageEntity, onRetryClick: () -> Unit = {}) {
                                 contentScale = ContentScale.Fit
                             )
                         } else {
-                            // 上传中显示进度
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(48.dp), tint = if (isFromMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -442,13 +553,21 @@ private fun MessageItem(message: MessageEntity, onRetryClick: () -> Unit = {}) {
                         }
                     }
                     "FILE" -> {
-                        // 文件消息
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(32.dp), tint = if (isFromMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
+                                // 显示文件名：优先fileName，其次从URL提取，最后用content
+                                val displayFileName = message.fileName.ifEmpty {
+                                    val c = message.content
+                                    if (c.startsWith("http")) {
+                                        // 从 URL 提取文件名：去掉 UUID 前缀
+                                        val raw = c.substringAfterLast('/').substringAfter('_')
+                                        if (raw.isNotEmpty()) raw else c
+                                    } else c
+                                }
                                 Text(
-                                    text = message.fileName.ifEmpty { message.content },
+                                    text = displayFileName,
                                     color = if (isFromMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 14.sp,
                                     maxLines = 2
@@ -464,11 +583,11 @@ private fun MessageItem(message: MessageEntity, onRetryClick: () -> Unit = {}) {
                         }
                     }
                     else -> {
-                        // 文本消息
                         Text(text = message.content, color = if (isFromMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
                     }
                 }
             }
+            // 长按菜单
             Spacer(modifier = Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(text = formattedTime, fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
@@ -577,3 +696,4 @@ private fun DoubleCheckIcon(tint: Color) {
 private fun LaunchedMessages(itemCount: Int, block: suspend () -> Unit) {
     LaunchedEffect(itemCount) { block() }
 }
+

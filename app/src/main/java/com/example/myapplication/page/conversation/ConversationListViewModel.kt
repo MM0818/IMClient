@@ -119,11 +119,20 @@ class ConversationListViewModel @Inject constructor(
                         }
                         android.util.Log.d("IM_DEBUG", "会话列表收到消息: id=${event.message.id}, content=${event.message.content}, senderName=${event.message.senderName}")
                         messageRepository.receiveMessage(event.message)
+                        // 格式化会话列表的最新消息预览
+                        val previewContent = when (event.message.type) {
+                            com.example.myapplication.network.websocket.MessageType.IMAGE -> "[图片]"
+                            com.example.myapplication.network.websocket.MessageType.FILE -> {
+                                val c = event.message.content
+                                if (c.startsWith("http")) c.substringAfterLast('/').substringAfter('_').ifEmpty { "[文件]" } else "[文件]"
+                            }
+                            else -> event.message.content
+                        }
                         conversationRepository.handleMessageReceived(
                             conversationId = event.message.conversationId,
                             senderId = event.message.senderId,
                             senderName = event.message.senderName,
-                            messageContent = event.message.content,
+                            messageContent = previewContent,
                             timestamp = event.message.timestamp,
                             isFromMe = false
                         )

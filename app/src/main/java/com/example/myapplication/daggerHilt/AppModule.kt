@@ -9,6 +9,7 @@ import com.example.myapplication.database.im.dao.MessageDao
 import com.example.myapplication.network.auth.AuthService
 import com.example.myapplication.network.chatList.ChatListService
 import com.example.myapplication.network.eachChatRecord.ChatRecordService
+import com.example.myapplication.network.upload.FileUploadApi
 import com.example.myapplication.network.uploadFile.UploadFileService
 import com.example.myapplication.network.user.UserService
 import dagger.Module
@@ -65,7 +66,7 @@ object AppModule {
     @Named("upload")
     fun provideRetrofit(client: OkHttpClient): Retrofit {
         return Retrofit.Builder()
-            .baseUrl("https://blob.datapipe.top")
+            .baseUrl("http://192.168.18.15:8081/")
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .addCallAdapterFactory(FlowCallAdapterFactory.create())
@@ -89,7 +90,7 @@ object AppModule {
     @Named("auth")
     fun provideRetrofitAuth(client: OkHttpClient): Retrofit {
         return Retrofit.Builder()
-            .baseUrl("http://192.168.148.15:8081/")   //换成电脑的ip4地址，确保手机和电脑连接同一个网络
+            .baseUrl("http://192.168.18.15:8081/")   //换成电脑的ip4地址，确保手机和电脑连接同一个网络
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
@@ -99,6 +100,12 @@ object AppModule {
     @Provides
     fun provideUploadFileService(@Named("upload") retrofit: Retrofit): UploadFileService {
         return retrofit.create(UploadFileService::class.java)
+    }
+
+    @Singleton
+    @Provides
+    fun provideFileUploadApi(@Named("upload") retrofit: Retrofit): FileUploadApi {
+        return retrofit.create(FileUploadApi::class.java)
     }
 
     @Singleton

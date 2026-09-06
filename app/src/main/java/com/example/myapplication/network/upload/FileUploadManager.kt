@@ -31,7 +31,9 @@ import javax.inject.Singleton
  * 5. 并发分片上传控制
  */
 @Singleton
-class FileUploadManager @Inject constructor() {
+class FileUploadManager @Inject constructor(
+    private val uploadApi: FileUploadApi
+) {
 
     companion object {
         private const val TAG = "FileUploadManager"
@@ -53,13 +55,6 @@ class FileUploadManager @Inject constructor() {
 
     // 协程作用域
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
-    // 上传API（需要注入）
-    private var uploadApi: FileUploadApi? = null
-
-    fun setUploadApi(api: FileUploadApi) {
-        uploadApi = api
-    }
 
     /**
      * 获取上传任务状态
@@ -207,7 +202,7 @@ class FileUploadManager @Inject constructor() {
         val task = uploadTasks[taskId] ?: return
         scope.launch {
             try {
-                uploadApi?.cancelUpload(CompleteUploadRequest(uploadId = task.uploadUrl))
+                uploadApi.cancelUpload(CompleteUploadRequest(uploadId = task.uploadUrl))
             } catch (e: Exception) {
                 Log.e(TAG, "取消上传失败: ${e.message}")
             }
@@ -221,7 +216,7 @@ class FileUploadManager @Inject constructor() {
      * 初始化上传
      */
     private suspend fun initUpload(task: UploadTask): InitUploadResponse {
-        val api = uploadApi ?: throw Exception("UploadApi未设置")
+        val api = uploadApi
         return api.initUpload(
             InitUploadRequest(
                 fileName = task.fileName,
@@ -260,7 +255,7 @@ class FileUploadManager @Inject constructor() {
      */
     private suspend fun uploadChunkWithRetry(taskId: String, chunk: ChunkInfo, context: Context) {
         val task = uploadTasks[taskId] ?: return
-        val api = uploadApi ?: throw Exception("UploadApi未设置")
+        val api = uploadApi
 
         var retryCount = 0
         var lastException: Exception? = null
@@ -277,6 +272,7 @@ class FileUploadManager @Inject constructor() {
                 // 上传分片
                 val requestBody = object : RequestBody() {
                     override fun contentType() = task.mimeType.toMediaTypeOrNull()
+                    override fun contentLength() = chunkData.size.toLong()
                     override fun writeTo(sink: BufferedSink) {
                         sink.write(chunkData)
                     }
@@ -330,7 +326,7 @@ class FileUploadManager @Inject constructor() {
      * 完成上传
      */
     private suspend fun completeUpload(task: UploadTask): CompleteUploadResponse {
-        val api = uploadApi ?: throw Exception("UploadApi未设置")
+        val api = uploadApi
         return api.completeUpload(CompleteUploadRequest(uploadId = task.uploadUrl))
     }
 
@@ -399,6 +395,9 @@ class FileUploadManager @Inject constructor() {
      * 获取文件名
      */
     private fun getFileName(contentResolver: android.content.ContentResolver, uri: android.net.Uri): String? {
+        if (uri.scheme == "file") {
+            return uri.lastPathSegment
+        }
         var fileName: String? = null
         contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -412,6 +411,10 @@ class FileUploadManager @Inject constructor() {
      * 获取文件大小
      */
     private fun getFileSize(contentResolver: android.content.ContentResolver, uri: android.net.Uri): Long {
+        // file:// URI 需要用 File.length() 获取大小
+        if (uri.scheme == "file") {
+            return java.io.File(uri.path!!).length()
+        }
         var fileSize = 0L
         contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)

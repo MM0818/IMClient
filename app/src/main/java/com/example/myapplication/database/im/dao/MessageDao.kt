@@ -31,6 +31,18 @@ interface MessageDao {
     suspend fun updateMessageStatus(messageId: String, status: String)
 
     /**
+     * 更新消息内容
+     */
+    @Query("UPDATE messages SET content = :content WHERE id = :messageId")
+    suspend fun updateMessageContent(messageId: String, content: String)
+
+    /**
+     * 更新消息文件URL（上传完成后调用，content保留为文件名用于显示）
+     */
+    @Query("UPDATE messages SET fileUrl = :fileUrl WHERE id = :messageId")
+    suspend fun updateMessageFileUrl(messageId: String, fileUrl: String)
+
+    /**
      * 将所有SENDING状态的消息标记为FAILED（断网时调用）
      */
     @Query("UPDATE messages SET status = 'FAILED' WHERE status = 'SENDING' AND ownerUserId = :ownerUserId")

@@ -9,14 +9,19 @@ import com.example.myapplication.database.im.dao.MessageDao
 import com.example.myapplication.database.im.entity.MessageEntity
 import com.example.myapplication.network.upload.FileUploadManager
 import com.example.myapplication.network.upload.ImageCompressor
+import com.example.myapplication.network.upload.UploadProgressListener
+import com.example.myapplication.network.upload.UploadResult
 import com.example.myapplication.network.upload.UploadState
 import com.example.myapplication.network.websocket.IMMessage
 import com.example.myapplication.network.websocket.IncomingMessage
 import com.example.myapplication.network.websocket.MessageStatus
 import com.example.myapplication.network.websocket.MessageType
 import com.example.myapplication.network.websocket.WebSocketManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -262,8 +267,34 @@ class MessageRepository @Inject constructor(
         )
         messageDao.insertMessage(messageEntity)
 
-        // 4. 开始上传
-        fileUploadManager.startUpload(uploadTask.id, context)
+        // 4. 开始上传，上传完成后通过WebSocket发送图片消息
+        fileUploadManager.startUpload(uploadTask.id, context, object : UploadProgressListener {
+            override fun onProgressChanged(taskId: String, progress: Float, uploadedBytes: Long, totalBytes: Long) {}
+            override fun onStateChanged(taskId: String, state: UploadState) {}
+            override fun onCompleted(taskId: String, result: UploadResult) {
+                // 上传成功，通过WebSocket发送图片消息（content为文件URL）
+                val serverFileUrl = "http://192.168.18.15:8081${result.fileUrl}"
+                android.util.Log.d("IM_DEBUG", "[UPLOAD] 图片上传完成，发送WebSocket消息: messageId=$messageId, fileUrl=$serverFileUrl")
+                webSocketManager.sendMessage(
+                    conversationId = conversationId,
+                    receiverId = receiverId,
+                    content = serverFileUrl,
+                    type = MessageType.IMAGE,
+                    existingMessageId = messageId
+                )
+                // 更新本地消息的fileUrl字段（content保留为"[图片]"用于显示兜底）
+                CoroutineScope(Dispatchers.IO).launch {
+                    messageDao.updateMessageFileUrl(messageId, serverFileUrl)
+                    messageDao.updateMessageStatus(messageId, MessageStatus.SENT.name)
+                }
+            }
+            override fun onFailed(taskId: String, error: String) {
+                android.util.Log.e("IM_DEBUG", "[UPLOAD] 图片上传失败: messageId=$messageId, error=$error")
+                CoroutineScope(Dispatchers.IO).launch {
+                    messageDao.updateMessageStatus(messageId, MessageStatus.FAILED.name)
+                }
+            }
+        })
 
         return messageId to uploadTask.id
     }
@@ -306,8 +337,33 @@ class MessageRepository @Inject constructor(
         )
         messageDao.insertMessage(messageEntity)
 
-        // 3. 开始上传
-        fileUploadManager.startUpload(uploadTask.id, context)
+        // 3. 开始上传，上传完成后通过WebSocket发送文件消息
+        fileUploadManager.startUpload(uploadTask.id, context, object : UploadProgressListener {
+            override fun onProgressChanged(taskId: String, progress: Float, uploadedBytes: Long, totalBytes: Long) {}
+            override fun onStateChanged(taskId: String, state: UploadState) {}
+            override fun onCompleted(taskId: String, result: UploadResult) {
+                val serverFileUrl = "http://192.168.18.15:8081${result.fileUrl}"
+                android.util.Log.d("IM_DEBUG", "[UPLOAD] 文件上传完成，发送WebSocket消息: messageId=$messageId, fileUrl=$serverFileUrl")
+                webSocketManager.sendMessage(
+                    conversationId = conversationId,
+                    receiverId = receiverId,
+                    content = serverFileUrl,
+                    type = MessageType.FILE,
+                    existingMessageId = messageId
+                )
+                // 更新fileUrl字段，content保留为文件名用于显示
+                CoroutineScope(Dispatchers.IO).launch {
+                    messageDao.updateMessageFileUrl(messageId, serverFileUrl)
+                    messageDao.updateMessageStatus(messageId, MessageStatus.SENT.name)
+                }
+            }
+            override fun onFailed(taskId: String, error: String) {
+                android.util.Log.e("IM_DEBUG", "[UPLOAD] 文件上传失败: messageId=$messageId, error=$error")
+                CoroutineScope(Dispatchers.IO).launch {
+                    messageDao.updateMessageStatus(messageId, MessageStatus.FAILED.name)
+                }
+            }
+        })
 
         return messageId to uploadTask.id
     }

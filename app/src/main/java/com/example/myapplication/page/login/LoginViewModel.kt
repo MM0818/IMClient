@@ -251,7 +251,7 @@ class LoginViewModel @Inject constructor(
     fun diagnoseNetwork() {
         Log.d("IM_DEBUG", "========== 网络诊断开始 ==========")
         viewModelScope.launch(Dispatchers.IO) {
-            val host = "192.168.148.15"
+            val host = "192.168.18.15"
             val port = 8081
 
             // 测试1: DNS解析

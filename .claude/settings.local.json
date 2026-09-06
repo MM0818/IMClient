@@ -22,7 +22,10 @@
       "Bash(./mvnw compile *)",
       "Bash(mvn compile *)",
       "Bash(mvn clean *)",
-      "Bash(./gradlew :app:compileDebugKotlin)"
+      "Bash(./gradlew :app:compileDebugKotlin)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 *)",
+      "Bash(python *)"
     ]
   }
 }
